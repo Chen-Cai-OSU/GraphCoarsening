@@ -1,19 +1,24 @@
 # Created at 2020-04-17
 # Summary: implement a loss function based on || x.T * L * x - x'.T * L_{sparse} * x' ||
+
 import math
+from functools import partial
 
 import numpy as np
 import torch
+import torch_geometric
+from scipy.sparse import csc_matrix
+from torch_geometric.utils import get_laplacian, to_networkx, from_networkx
 
 # convert the assignment to the projection mat, so we don't need to do it every time when we compute loss.
 # n, r the size of L and L_sparse.
 from sparsenet.util.sample import sample_N2Nlandmarks
-from sparsenet.util.util import random_pygeo_graph, maybe_edge_weight, summary, fix_seed, banner
-import torch_geometric
-from sparsenet.util.util import timefunc, pf
-from torch_geometric.utils import get_laplacian, to_networkx, from_networkx
-from scipy.sparse import csc_matrix
+from sparsenet.util.util import random_pygeo_graph, summary, fix_seed, banner, timefunc, pf
+
 fix_seed()
+
+tf = partial(timefunc, threshold=-1)
+
 
 @timefunc
 def get_projection_mat(n, r, Assignment):
@@ -28,7 +33,7 @@ def get_projection_mat(n, r, Assignment):
         s = len(value)
         assert s != 0
         for v in value:
-            P[key][v] = 1 / s # important
+            P[key][v] = 1 / s  # important
     return torch.FloatTensor(P)
 
 
@@ -42,10 +47,10 @@ def get_sparse_projection_mat(n, r, Assignment):
     index, val = [], []
     for key, value in Assignment.items():
         s = len(value)
-        assert s!= 0
+        assert s != 0
         for v in value:
             index.append([key, v])
-        val = val + [1/s] * s
+        val = val + [1 / s] * s
     i, v = torch.tensor(index).T, torch.tensor(val)
     return torch.sparse.FloatTensor(i, v, torch.Size([r, n]))
 
@@ -61,10 +66,10 @@ def get_sparse_C(n, r, Assignment):
     row, col, val = [], [], []
     for key, value in Assignment.items():
         s = len(value)
-        assert s!= 0
+        assert s != 0
         row.extend([key] * s)
         col.extend(list(value))
-        val = val + [1/np.sqrt(s)] * s # the major differeence
+        val = val + [1 / np.sqrt(s)] * s  # the major differeence
 
     row, col = np.array(row), np.array(col)
     data = np.array(val)
@@ -72,8 +77,7 @@ def get_sparse_C(n, r, Assignment):
     # return torch.sparse.FloatTensor(i, v, torch.Size([r, n]))
 
 
-@timefunc
-def random_vec_loss(L, L_sparse, Projection, device='cpu', num_vec=None, debug = False):
+def random_vec_loss(L, L_sparse, Projection, device='cpu', num_vec=None, debug=False):
     '''
     :param L: L is a n*n sparse Tensor.
     :param L_sparse: a r*r sparse Tensor
@@ -107,14 +111,12 @@ def random_vec_loss(L, L_sparse, Projection, device='cpu', num_vec=None, debug =
     X_prime = torch.mm(Projection, X)
     quadL = torch.mm(X.t(), torch.sparse.mm(L, X))
     qualL_sparse = torch.mm(X_prime.t(), torch.sparse.mm(L_sparse, X_prime))
-    loss = torch.sum(torch.abs(quadL - qualL_sparse)) # important: this is wrong!
+    loss = torch.sum(torch.abs(quadL - qualL_sparse))  # important: this is wrong!
     return loss
 
-from functools import partial
-tf = partial(timefunc, threshold=.1)
 
-@tf
-def get_laplacian_mat(edge_index, edge_weight, num_node, normalization='sym'): # todo: change back
+# @tf
+def get_laplacian_mat(edge_index, edge_weight, num_node, normalization='sym'):  # todo: change back
     """ return a laplacian (torch.sparse.tensor)"""
     edge_index, edge_weight = get_laplacian(edge_index, edge_weight,
                                             normalization=normalization)  # see https://bit.ly/3c70FJK for format
@@ -123,7 +125,7 @@ def get_laplacian_mat(edge_index, edge_weight, num_node, normalization='sym'): #
 
 @tf
 def energy_loss(L1, L2, assignment, device='cuda', test=False,
-                n_measure = 1, num_vec = None):
+                n_measure=1, num_vec=None):
     """
     :param g1: pygeo graph
     :param g2: pygeo graph (smaller)
@@ -154,7 +156,6 @@ def energy_loss(L1, L2, assignment, device='cuda', test=False,
             losses.append(np.float(loss))
         mean, std = np.mean(losses), np.std(losses)
         return f'{pf(mean, 2)}±{pf(std, 2)}'
-
 
 
 if __name__ == '__main__':

@@ -16,19 +16,17 @@ import torch
 
 torch.set_num_threads(n)  # always import this first
 
-from time import time
 import argparse
 import logging
 import sys
 
-import numpy as np
-
-from sparsenet.model.eval import tester, trainer  # train, set_train_data
+from sparsenet.model.eval import tester  # train, set_train_data
 from sparsenet.model.model import GNN_graphpred
 from sparsenet.util.data import data_loader
 from sparsenet.util.name_util import set_model_dir
 from sparsenet.util.train_util import monitor
-from sparsenet.util.util import fix_seed, banner, red, pf, slack
+from sparsenet.util.util import fix_seed
+from sparsenet.util.args_util import argsparser
 
 parser = argparse.ArgumentParser(description='Graph edge sparsification')
 
@@ -71,7 +69,7 @@ parser.add_argument('--n_cycle', type=int, default=1, help='number of cycles')
 parser.add_argument('--trial', type=int, default=0, help='trial. Act like random seed')
 parser.add_argument('--seed', type=int, default=1, help='random seed')
 parser.add_argument('--loss', type=str, default='quadratic', help='quadratic loss',
-                    choices=['quadratic', 'conductance', 'rayleigh'])
+                    choices=['quadratic', 'rayleigh'])
 parser.add_argument('--offset', type=int, default='0', help='number of offset eigenvector')
 
 parser.add_argument('--correction', action='store_true', help='Apply Laplacian correction')
@@ -86,102 +84,28 @@ parser.add_argument('--method', type=str, default='variation_edges', help='Louka
                     choices=['variation_neighborhoods', 'variation_edges', 'variation_cliques',
                              'heavy_edge', 'algebraic_JC', 'affinity_GS', 'kron', 'variation_neighborhood',
                              'DK_method'])
-from sparsenet.util.args_util import argsparser
 
 if __name__ == '__main__':
-    t0 = time()
-    args = parser.parse_args()
-    AP = argsparser(args)
+    AP = argsparser(parser.parse_args())
     args = AP.args
-
     dev = args.device
     M = monitor()
     fix_seed(seed=args.seed)
-    dataset_loader = data_loader(args, dataset=args.dataset)
 
+    dataset_loader = data_loader(args, dataset=args.dataset)
     train_indices, val_indices, test_indices = AP.set_indices()
+
     nfeat_dim, efeat_dim, out_dim = 5, 1, 1
     model = GNN_graphpred(args.n_layer, args.emb_dim, nfeat_dim, efeat_dim, out_dim,
                           force_pos=args.force_pos, mlp=args.mlp).to(dev)
-    optimizer_gnn = torch.optim.Adam(model.parameters(), args.lr)
-    TE = tester(dev=dev)
+    optimizer = torch.optim.Adam(model.parameters(), args.lr)
     logging.basicConfig(level=getattr(logging, args.log.upper()),
                         handlers=[logging.StreamHandler(sys.stdout)])
 
+    TE = tester(dev=dev)
     ################################################################
-    ME = ModelEvaluator(model, dataset_loader, dev, optimizer_gnn)
+    ME = ModelEvaluator(model, dataset_loader, dev, optimizer)
     ME.set_modelpath(set_model_dir(args, train_indices, val_indices, test_indices))
     model, args = ME.find_best_model(model, train_indices, val_indices, args)
     ME.test_model(model, test_indices, AP, args)
-    exit()
     ################################################################
-
-
-    OUT_PATH = set_model_dir(args, train_indices, val_indices, test_indices)
-
-    if args.testonly:
-        model.load_state_dict(torch.load(OUT_PATH + f'checkpoint-best-n-gen.pkl'))
-        for idx_ in test_indices:
-            args.test_idx = idx_
-            TE.set_test_data(args, dataset_loader)
-            TE.eval(model, args, verbose=False)
-            banner(f'{args.dataset}: finish testing graph {test_indices}.')
-        exit()
-
-    # train
-    val_score = {}
-    best_n_gen = -1e10
-    best_impr_ratio = -1e30
-    best_eigen_ratio = -1e30
-    TR = trainer(dev=dev)
-
-    for idx in train_indices:  # *args.n_cycle:
-        args.train_idx = idx
-        args.cur_idx = idx
-        TR.set_train_data(args, dataset_loader)
-        TR.train(model, optimizer_gnn, args, verbose=False)
-        TR.delete_train_data(idx)
-
-        # validate
-        val_score[idx] = {'n_gen': [], 'impr_ratio': [], 'eigen_ratio': []}
-        for idx_ in val_indices:
-            args.test_idx = idx_
-            args.cur_idx = idx_
-            TE.set_test_data(args, dataset_loader)
-            n_gen, impr_ratio, eigen_ratio = TE.eval(model, args, verbose=False)
-
-            val_score[idx]['n_gen'].append(n_gen)
-            val_score[idx]['impr_ratio'].append(impr_ratio)
-            val_score[idx]['eigen_ratio'].append(eigen_ratio)
-
-        banner(f'{args.dataset}: finish validating graph {val_indices}.')
-        cur_impr_ratio = np.mean(val_score[idx]['impr_ratio'])
-        cur_eigen_ratio = np.mean(val_score[idx]['eigen_ratio'])
-
-        # save the model if it works well on val data
-        print(cur_eigen_ratio, best_eigen_ratio)
-        if cur_eigen_ratio > best_eigen_ratio:
-            best_eigen_ratio = cur_eigen_ratio
-            torch.save(model.state_dict(), OUT_PATH + f'checkpoint-best-eigen-ratio.pkl')
-            print(red(f'Save model for train idx {idx}. Best-eigen-ratio is {pf(best_eigen_ratio, 2)}.'))
-
-        if cur_impr_ratio > best_impr_ratio:
-            best_impr_ratio = cur_impr_ratio
-            torch.save(model.state_dict(), OUT_PATH + f'checkpoint-best-improve-ratio.pkl')
-            print(red(f'Save model for train idx {idx}. Best-improve-ratio is {pf(best_impr_ratio, 2)}.'))
-
-    for idx_ in val_indices:
-        TE.delete_test_data(idx_)
-
-    model_name = AP.set_model_name()
-    model.load_state_dict(torch.load(OUT_PATH + model_name))
-
-    for idx_ in test_indices:
-        args.test_idx = idx_
-        args.cur_idx = idx_
-        TE.set_test_data(args, dataset_loader)
-        TE.eval(model, args, verbose=False)
-        banner(f'{args.dataset}: finish testing graph {idx_}.')
-
-    if args.tbx: TR.writer.close()
-

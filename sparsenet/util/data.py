@@ -1,8 +1,6 @@
 # Created at 2020-05-04
 # Summary: data related functions.
-from copy import deepcopy
 
-from sparsenet.util.sys_util import status  # important: do not delete
 import os
 import os.path as osp
 from time import time
@@ -14,8 +12,9 @@ import torch
 import torch_geometric
 import torch_geometric.transforms as T
 from graph_coarsening import graph_lib
+from joblib import Parallel, delayed
 from pygsp import graphs
-from scipy.sparse.linalg import eigs, eigsh
+from scipy.sparse.linalg import eigsh
 from torch_geometric.data import DataLoader, InMemoryDataset
 from torch_geometric.data.data import Data
 from torch_geometric.datasets import SNAPDataset, ShapeNet, Planetoid, GeometricShapes, TUDataset, CoraFull, Coauthor, \
@@ -31,7 +30,6 @@ from sparsenet.util.graph_util import subgraphs
 from sparsenet.util.util import red, timefunc, largest_cc, num_comp, fix_seed, tonp, banner, dict2name, summary, \
     random_pygeo_graph, sparse_tensor2_sparse_numpyarray
 from sparsenet.util.viz_util import plot3dpts
-from memory_profiler import profile
 
 data_dir = os.path.join(osp.dirname(osp.realpath(__file__)), '..', 'data')
 egograph_dir = os.path.join(data_dir, 'egographs')
@@ -117,9 +115,6 @@ def hybrid_graphs(name='amazons'):
     # g  = [input_check(g_) for g_ in g]
     g = [handle_num_nodes(g_) for g_ in g]
     return g
-
-
-from joblib import Parallel, delayed
 
 
 class test_parallel:
@@ -290,7 +285,7 @@ class EgoGraphs(InMemoryDataset):
 def precompute_eig(g, k=100):
     """ given a pyg graph, compute its eigenvalue and eigenvector for sym and None laplacian """
     k = min(k, g.num_nodes)
-    threshold = 890000 # 89000 # important: change back to 89000
+    threshold = 890000  # 89000 # important: change back to 89000
     laps = [None, ] if g.num_nodes > threshold else [None, 'sym']
     for lap in laps:  # didn't add rw since it's not symmetric
         t0 = time()
@@ -653,7 +648,6 @@ class data_loader:
             assert max(args.train_idx, args.test_idx) < len(datasets), \
                 f'Dataset is of len {len(datasets)}. Max idx is {max(args.train_idx, args.test_idx)}'
         print(f'Finish loading dataset {dataset} (len: {red(len(datasets))})')
-
 
         datasets = [handle_num_nodes(data) for data in datasets]
         datasets = [clip_feat(data, args, dim=args.n_bottomk) for data in datasets]

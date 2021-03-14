@@ -1,23 +1,22 @@
 # Created at 2020-05-20
 # Summary: Implement a class so that one can get all sort of random vecs.
-import sys
+
+from copy import deepcopy
 
 import numpy as np
 import scipy as sp
 import torch
-import torch_geometric
-from graph_coarsening import coarsening_quality
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import eigs, eigsh
 
-from sparsenet.model.loss import get_projection_mat, get_sparse_projection_mat
+from sparsenet.model.loss import get_sparse_projection_mat
 # from sparsenet.util.data import pyg2gsp
 from sparsenet.util.cut_util import pyG_conductance
-from sparsenet.util.name_util import set_eigenvec_dir
-from sparsenet.util.torch_util import sparse_mm, sparse_mm2, sparse_matrix2sparse_tensor
-from sparsenet.util.util import fix_seed, timefunc, summary, random_laplacian, pf, tonp, red, pyg2gsp, dic2tsr
-from copy import deepcopy
+from sparsenet.util.torch_util import sparse_mm2, sparse_matrix2sparse_tensor
+from sparsenet.util.util import fix_seed, timefunc, summary, random_laplacian, pf, tonp, red, dic2tsr
+
 fix_seed()
+
 
 class vec_generator(object):
     def __init__(self):
@@ -154,8 +153,9 @@ class loss_manager(object):
     @timefunc
     def set_C(self, C=None):
         if C is not None:
-            self.C = C # csc_matrix of shape (n, N) # tonp(C)
-            self.pi = sparse_matrix2sparse_tensor(self.C.T.dot(self.C).tocoo(), dev=self.device) # mainly used for rayleigh quotient
+            self.C = C  # csc_matrix of shape (n, N) # tonp(C)
+            self.pi = sparse_matrix2sparse_tensor(self.C.T.dot(self.C).tocoo(),
+                                                  dev=self.device)  # mainly used for rayleigh quotient
             tmp = self.C.dot(np.ones((self.C.shape[1], 1))).reshape(-1)
             assert np.min(tmp) > 0, f'min of tmp is {np.min(tmp)}'
             # self.Q = np.diag(tmp)
@@ -185,7 +185,7 @@ class loss_manager(object):
         self.s_list = []
         self.s_list_tsr = []
         for _ in range(k):
-            _size = np.random.choice(range(int(n/4.0), int(n / 2.0)))
+            _size = np.random.choice(range(int(n / 4.0), int(n / 2.0)))
             s = np.random.choice(range(n), size=_size, replace=False).tolist()
             self.s_list.append(s)
             self.s_list_tsr.append(torch.tensor(s))
@@ -204,7 +204,7 @@ class loss_manager(object):
         s = s.to(self.device)
         if isinstance(s, torch.Tensor):
             s_prime = torch.index_select(self.inv_asgmt_tsr, 0, s)
-            s_prime = torch.unique(s_prime) # remove duplicates
+            s_prime = torch.unique(s_prime)  # remove duplicates
             # s = tonp(s).tolist()
             # s_prime = [self.inv_asgmt[s_] for s_ in s]
             # s_prime = torch.tensor(s_prime)
@@ -221,7 +221,7 @@ class loss_manager(object):
         return s_prime
 
     @timefunc
-    def condunctance_loss(self, g1, g2, assgnment, verbose = False):
+    def condunctance_loss(self, g1, g2, assgnment, verbose=False):
         """
         todo: slow for shape dataset: 1.2s each batch
         :param g1: edge_index1, edge_attr1 for original graph
@@ -256,11 +256,11 @@ class loss_manager(object):
         n = L.shape[0]
         idx = torch.LongTensor([[i, i] for i in range(n)]).T.to(dev)
         diag = torch.diag(L.to_dense())
-        diag = diag**(power)
+        diag = diag ** (power)
         deg = torch.sparse.FloatTensor(idx, diag, torch.Size([n, n]))
         return deg
 
-    def quaratic_loss(self, L1, L2, assignment, verbose=False, inv=False, rayleigh=False, dynamic = False,
+    def quaratic_loss(self, L1, L2, assignment, verbose=False, inv=False, rayleigh=False, dynamic=False,
                       comb=(None, None)):
         """
         modfied from random_vec_loss.
@@ -280,7 +280,8 @@ class loss_manager(object):
 
         if self.Projection is None:
             # Projection = get_projection_mat(L1.shape[0], L2.shape[0], assignment).to(self.device)
-            self.Projection = get_sparse_projection_mat(L1.shape[0], L2.shape[0], assignment).to(self.device) # sparse tensor
+            self.Projection = get_sparse_projection_mat(L1.shape[0], L2.shape[0], assignment).to(
+                self.device)  # sparse tensor
             Projection = self.Projection
         else:
             Projection = self.Projection
@@ -304,7 +305,7 @@ class loss_manager(object):
             # self.x = torch.nn.functional.normalize(self.x, dim=0)
             # X_prime = torch.nn.functional.normalize(X_prime, dim=0)
             assert self.pi is not None
-            denominator = torch.diag(torch.mm(self.x.t(), torch.sparse.mm(self.pi, self.x))) # (n_bottomk,)
+            denominator = torch.diag(torch.mm(self.x.t(), torch.sparse.mm(self.pi, self.x)))  # (n_bottomk,)
 
         if not inv:
             quadL = torch.mm(self.x.t(), torch.sparse.mm(L1, self.x))
@@ -318,11 +319,10 @@ class loss_manager(object):
             quadL = torch.mm(self.x.t(), torch.mm(L1_inv, self.x))
             qualL_sparse = torch.mm(X_prime.t(), torch.mm(L2_inv, X_prime))
 
-        # summary(torch.sign(torch.diag(quadL - qualL_sparse)), 'sign', highlight=True)
         diff = torch.abs(torch.diag(quadL - qualL_sparse))  # important: previously DK didn't add torch.diag
         if rayleigh: diff = diff / denominator
 
-        loss = torch.mean(diff) # torch.sum(diff)
+        loss = torch.mean(diff)  # torch.sum(diff)
         ratio = torch.sum(torch.diag(qualL_sparse)) / torch.sum(torch.diag(quadL))
         ratio = torch.abs(torch.log(ratio))
         std = torch.std(diff)
@@ -333,80 +333,40 @@ class loss_manager(object):
             print(bad_indices.reshape(-1))
         return loss, ratio
 
-    def conductance_loss(self):
-        pass
-
     @timefunc
-    def eigen_loss(self, L1, L2, k, args=None, g1=None, verbose=False, skip = False):
+    def eigen_loss(self, L1, L2, k, args=None, g1=None, skip=False):
         """ compare the first k eigen difference
             L1 is larger than L2
-
         :param args
         :param g1: used for retrive precomputed spectrum
         """
         if skip: return -1
 
+        # get eigenvalues of L1
         if self.vals_L1 is None:
             # compute eigenvals only once
             self.L1 = L1  # doesn't seem to be useful any more
-
             key = str(args.lap) + '_vals'
             vals_L1 = g1[key][:k].numpy()
             vals_L1 = deepcopy(vals_L1)  # if not deepcopy, g1 None_vals[0] will get modified
-
-            # old version #
-            # try:
-            #     key = str(args.lap) + '_vals'
-            #     vals_L1 = g1[key][:k].numpy()
-            #     vals_L1 = deepcopy(vals_L1)  # if not deepcopy, g1 None_vals[0] will get modified
-            #
-            #     vals_L1_cmp = self.gen.bottomk_vec(L1, None, k, which='SM', val=True).real
-            #     summary(vals_L1, red('vals_L1'))
-            #     summary(vals_L1_cmp, red('vals_L1_cmp'))
-            #     summary(vals_L1 - vals_L1_cmp, red('vals_L1 - vals_L1_cmp'))
-            #     assert np.max(np.abs(vals_L1 - vals_L1_cmp)) < 1e-5
-            #     # vals_L1 = self.gen.bottomk_vec(L1, None, k, which='SM', val = True).real
-            #
-            # except AssertionError:
-            #     print(red(f'Still needs to recompute eigenvals.'))
-            #     vals_L1 = self.gen.bottomk_vec(L1, None, k, which='SM', val=True).real
-            #
-
             self.vals_L1 = vals_L1
         else:
             vals_L1 = self.vals_L1
 
+        # get eigenvalues of L2
         if args.cacheeig:
-            NotImplementedError
-            # dir = set_eigenvec_dir(args)
-            # fname = dir + 'eig.pt'
-            # try:
-            #     vals_L2 = torch.load(fname)
-            #     print(red(f'load vals_L2 at {fname}'))
-            # except FileNotFoundError:
-            #     vals_L2 = self.gen.bottomk_vec(L2, None, k, which='SM', val=True).real
-            #     torch.save(vals_L2, fname)
-            #     print(red(f'save vals_L2 at {fname}'))
+            raise NotImplementedError
         else:
             vals_L2 = self.gen.bottomk_vec(L2, None, k, which='SM', val=True).real
-        vals_L1 = vals_L1[:len(vals_L2)] # in case vals_L1 and vals_L2 are of different length
+
+        # compute the eigenvalues error
+        vals_L1 = vals_L1[:len(vals_L2)]  # in case vals_L1 and vals_L2 are of different length
         bad_indices = np.nonzero(vals_L1 < 1e-5)
-        if len(bad_indices) > 1: print(red(f'There are {len(bad_indices)} nearly zero eigenvalues.'))
-
-        ### old
-        # vals_L1[bad_indices] = 1
-        # err = np.abs(vals_L1 - vals_L2) / vals_L1
-
-        ### new
+        if len(bad_indices) > 1:
+            print(red(f'There are {len(bad_indices)} nearly zero eigenvalues.'))
         err = np.abs(vals_L1 - vals_L2) / (vals_L1 + 1e-15)
-
         err[0] = 0
         err[bad_indices] = 0
-        if verbose:
-            summary(err, 'relative eigen_ratio error')
-            eigenloss_bad_indices = [(i, pf(err[i]/np.median(err), 1)) for i in range(len(err)) if err[i]>np.median(err)]
-            print(f'eigenloss_bad_indices: {eigenloss_bad_indices}')
-
         return np.mean(err)
 
 
