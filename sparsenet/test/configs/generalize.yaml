@@ -1,0 +1,97 @@
+ini:
+    format: "values"
+    values:
+        - False
+    dtype: 'bool'
+
+
+lap:
+    format: "values"
+    values:
+        - 'sym'
+        - 'none'
+    dtype: 'str'
+
+device:
+    format: "values"
+    values:
+#        - 'cuda'
+        - 'cpu'
+    dtype: 'str'
+
+n_epoch:
+    format: "values"
+    values:
+        - 50
+    dtype: "int"
+
+strategy:
+    format: "values"
+    values:
+        - "loukas"
+    dtype: 'str'
+
+method:
+    format: "values"
+    values:
+        - "variation_neighborhood"
+        - 'heavy_edge'
+        - 'variation_edges'
+        - 'algebraic_JC'
+        - 'affinity_GS'
+    dtype: 'str'
+
+n_bottomk:
+    format: "values"
+    values:
+        - 40
+#        - 70
+    dtype: "float"
+
+bs:
+    format: "values"
+    values:
+        - 600
+    dtype: "int"
+
+ratio:
+    format: "values"
+    values:
+        - 0.3
+        - 0.5
+        - 0.7
+#        - 0.9
+    dtype: "float"
+
+
+dataset:
+    format: "values"
+    values:
+#        - 'sbm'
+        - 'random_er'
+        - 'shape'
+        - 'random_geo'
+        - 'ws'
+        - 'ba'
+#        - 'coauthors'
+#        - 'ego_facebook'
+    dtype: 'str'
+
+train_indices:
+    format: "values"
+    values:
+        - "\"0,1,2,3,4,\""
+    dtype: 'str'
+#
+test_indices:
+    format: "values"
+    values:
+        - "\"5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,\""
+    dtype: 'str'
+
+
+seed:
+    format: "values"
+    values:
+        - 0
+    dtype: "int"

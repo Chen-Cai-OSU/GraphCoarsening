@@ -17,7 +17,7 @@ DATABASE_NAME = 'sparsifier'
 ex = Experiment(EXPERIMENT_NAME)
 ex.observers.append(MongoObserver.create(url=YOUR_CPU, db_name=DATABASE_NAME))
 
-python = '/home/cai.507/anaconda3/envs/sparsifier/bin/python -W ignore '
+python = '~/anaconda3/envs/sparsifier/bin/python -W ignore '
 fname = 'sparsenet/model/example.py '
 
 

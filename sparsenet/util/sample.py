@@ -2,16 +2,15 @@ import networkx as nx
 import numpy as np
 import torch
 import torch_geometric
-from torch_geometric.data import Data
 from torch_geometric.utils import to_networkx
 
-from sparsenet.util.util import summary, random_edge_index, fix_seed, random_pygeo_graph, timefunc
+from sparsenet.util.util import summary, fix_seed, random_pygeo_graph, timefunc
 
 INFINITY = 1e8
 
 
 @timefunc
-def sample_N2Nlandmarks(G, N, weight_key='edge_weight',  reproducible = True):
+def sample_N2Nlandmarks(G, N, weight_key='edge_weight', reproducible=True):
     '''
     Node to nearest landmarks sampling.
     Selected a number of landmarks, then every node is collapsed to its nearest landmark
@@ -27,8 +26,9 @@ def sample_N2Nlandmarks(G, N, weight_key='edge_weight',  reproducible = True):
     if isinstance(G, torch_geometric.data.data.Data):
         G = to_networkx(G, edge_attrs=[weight_key])
 
-    assert(nx.is_directed(G) and nx.is_strongly_connected(G)), f'Input graph must be connected. {nx.number_strongly_connected_components(G)}'\
-    ' components detected, with sizes {[len(c) for c in nx.strongly_connected_components(G)]}'
+    assert (nx.is_directed(G) and nx.is_strongly_connected(
+        G)), f'Input graph must be connected. {nx.number_strongly_connected_components(G)}' \
+        ' components detected, with sizes {[len(c) for c in nx.strongly_connected_components(G)]}'
     V_length = G.number_of_nodes()
     assert (V_length >= N), f'graph has fewer nodes than input sample size {N}'
     V = list(G.nodes)
@@ -58,7 +58,8 @@ def sample_N2Nlandmarks(G, N, weight_key='edge_weight',  reproducible = True):
     # build edge in the sparsified graph
     g_prime_edges = {}
     for u, v, feature in G.edges.data():
-        i, j, weight = map_landmarkGid2Gpid[nearest_neighbor[u]], map_landmarkGid2Gpid[nearest_neighbor[v]], feature.get(weight_key, 1)
+        i, j, weight = map_landmarkGid2Gpid[nearest_neighbor[u]], map_landmarkGid2Gpid[
+            nearest_neighbor[v]], feature.get(weight_key, 1)
         if i != j:
             if i > j:
                 i, j = j, i
@@ -72,8 +73,6 @@ def sample_N2Nlandmarks(G, N, weight_key='edge_weight',  reproducible = True):
 
 
 if __name__ == '__main__':
-
-    # new test case
     fix_seed()
     n_node, n_edge, n_sample = 320, 5000, 100
     nfeat_dim = 42
@@ -84,28 +83,3 @@ if __name__ == '__main__':
 
     G_prime, Assignment = sample_N2Nlandmarks(G, n_sample, weight_key='edge_weight')
     print(nx.info(G_prime))
-    # for u, v in G_prime.edges:
-    #     print(u, v, G_prime[u][v])
-    exit()
-
-
-
-    fix_seed()
-    n_node, n_edge = 320, 1000
-    node_dim = 1
-    edge_feat_dim = 1
-    g = Data(x=torch.rand(n_node, node_dim),
-             edge_index=random_edge_index(n_edge, n_node),
-             edge_attr=torch.rand(n_edge, edge_feat_dim).type(torch.LongTensor))
-    summary(g, 'original_graph')
-
-    G = to_networkx(g)
-    print(nx.info(G))
-
-
-    G_prime, Assignment = sample_N2Nlandmarks(G, 100)
-    # edges now have weights
-    for i, (_, _, dict) in enumerate(G_prime.edges.data()):
-        print(i, dict)
-    print(nx.info(G_prime), Assignment)
-    exit()

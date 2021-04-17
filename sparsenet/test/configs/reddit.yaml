@@ -1,0 +1,101 @@
+ini:
+    format: "values"
+    values:
+        - True
+        - False
+    dtype: 'bool'
+
+
+device:
+    format: "values"
+    values:
+        - 'cuda'
+#        - 'cpu'
+    dtype: 'str'
+
+lap:
+    format: "values"
+    values:
+        - 'none'
+#        - 'sym'
+    dtype: 'str'
+
+n_epoch:
+    format: "values"
+    values:
+        - 20 # 20 is usually enough
+    dtype: "int"
+
+strategy:
+    format: "values"
+    values:
+        - "loukas"
+    dtype: 'str'
+
+method:
+    format: "values"
+    values:
+        - "variation_neighborhood"
+        - 'heavy_edge'
+        - 'variation_edges'
+#        - 'algebraic_JC'
+#        - 'affinity_GS'
+    dtype: 'str'
+
+n_bottomk:
+    format: "values"
+    values:
+        - 40
+#        - 70
+    dtype: "float"
+
+bs:
+    format: "values"
+    values:
+        - 600
+    dtype: "int"
+
+lr:
+    format: "values"
+    values:
+        - 1e-3
+    dtype: "float"
+
+ratio:
+    format: "values"
+    values:
+#        - 0.3
+#        - 0.5
+#        - 0.7
+        - 0.9
+    dtype: "float"
+
+
+dataset:
+    format: "values"
+    values:
+#        - 'citeseers'
+#        - 'pubmeds'
+#        - 'coauthor-cs'
+#        - 'coauthor-physics'
+        - 'reddit'
+    dtype: 'str'
+
+train_indices:
+    format: "values"
+    values:
+        - "\"2,3,4,5,6,7,8,9,10\""
+    dtype: 'str'
+#
+test_indices:
+    format: "values"
+    values:
+        - "\"0,\""
+    dtype: 'str'
+
+
+seed:
+    format: "values"
+    values:
+        - 0
+    dtype: "int"

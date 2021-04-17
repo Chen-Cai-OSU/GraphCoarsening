@@ -1,14 +1,13 @@
-# Created at 2020-05-17
-# Summary:
-
 # Created at 2020-04-16
 # Summary: util functions
+
 import shutil
 from warnings import warn
 
 import numpy as np
 import torch
 import torch_geometric
+from memory_profiler import profile
 from torch.autograd import Variable
 from torch_geometric.data import Data
 from torch_geometric.transforms import LocalDegreeProfile
@@ -16,13 +15,11 @@ from torch_geometric.utils import from_networkx, subgraph
 
 from sparsenet.model.loss import get_laplacian_mat, get_sparse_C
 from sparsenet.util.gsp_util import gsp2pyg
-from sparsenet.util.name_util import set_figname, set_coarsening_graph_dir
+from sparsenet.util.name_util import set_coarsening_graph_dir
 from sparsenet.util.sample import sample_N2Nlandmarks
-from sparsenet.util.util import subset_graph, timefunc, banner, summary, random_edge_index, fix_seed, red, pyg2gsp, \
-    make_dir
-from sparsenet.util.viz_util import plot_gsp
-from sparsenet.util.util import fig_dir
-import matplotlib.pyplot as plt
+from sparsenet.util.util import timefunc, banner, summary, random_edge_index, fix_seed, red, make_dir
+
+INFINITY = 1e8
 
 
 @timefunc
@@ -54,10 +51,6 @@ def get_merged_subgraph(G1, G2, crossing_edge):
     final_node_index = torch.cat((G1.node_index, G2.node_index), 0)
     return Data(x=final_x, edge_attr=final_edge_attr, edge_index=final_edge_index, node_index=final_node_index)
 
-
-INFINITY = 1e8
-
-from memory_profiler import profile
 
 @profile
 class GraphPair(object):
@@ -188,9 +181,10 @@ class GraphPair(object):
         tensor_indices = self.__get_tensor_indices(uprime, vprime)
         return G1, G2, crossing_edges, tensor_indices
 
+
 @profile
-class subgraphs:
-    def __init__(self, g, assertion=True, args=None):
+class subgraphs(object):
+    def __init__(self, g, assertion=False, args=None):
         """
         :param g: pyG graph with edeg_weight
         :param assertion: assert the edge index is right.
@@ -202,22 +196,6 @@ class subgraphs:
         assert 'edge_weight' in g.keys
         assert isinstance(g, Data)
 
-        # if args.strategy == 'DK':
-        #     n_sml = int(g.num_nodes * (1- args.ratio))
-        #     g_sml, assignment = sample_N2Nlandmarks(self.g, n_sml, weight_key='edge_weight')
-        #     self.g_sml = from_networkx(g_sml)
-        #     self.assignment = assignment
-        #
-        # elif args.strategy == 'loukas':
-        #     loukas_kwargs = {'r': args.ratio, 'method': args.method, 'loukas_quality': args.loukas_quality, 'K': args.n_bottomk}
-        #     converter = gsp2pyg(self.g, **loukas_kwargs)
-        #     g_sml, assignment = converter.pyg_sml, converter.assignment
-        #     self.g_sml = g_sml
-        #     self.C = converter.C
-        #     self.assignment = assignment
-        #     # self.Lc = converter.Lc
-        # else:
-        #     raise NotImplementedError
         self.__load_coarsening_graphs(args, recompute=False)
 
         self.graph_pair = GraphPair(self.g, self.g_sml, self.assignment)
@@ -230,7 +208,7 @@ class subgraphs:
             self.edges.append(idx1)
             self.inv_edges.append(idx2)
             self.double_edges.append((idx1, idx2))  # [idx1, idx2]
-            # if assertion: self.__assert(idx1, idx2) # turnef off
+            if assertion: self.__assert(idx1, idx2)
 
         new_info = {}
         for k, v in dict.items():
@@ -268,8 +246,6 @@ class subgraphs:
 
             # todo: add a function to convert self.assignment to C
             self.C = get_sparse_C(self.g.num_nodes, n_sml, self.assignment)
-
-
         elif args.strategy == 'loukas':
             try:
                 self.assignment = torch.load(f'{dir}assignment.pt')
@@ -277,7 +253,8 @@ class subgraphs:
                 self.C = torch.load(f'{dir}C.pt')
                 print(f'load g_sml, assignment, and C from \n {red(dir)}')
             except (FileNotFoundError, TypeError):
-                loukas_kwargs = {'r': args.ratio, 'method': args.method, 'loukas_quality': args.loukas_quality,
+                loukas_kwargs = {'r': args.ratio, 'method': args.method,
+                                 'loukas_quality': args.loukas_quality,
                                  'K': args.n_bottomk}
                 converter = gsp2pyg(self.g, **loukas_kwargs)
                 g_sml, assignment = converter.pyg_sml, converter.assignment
@@ -290,7 +267,6 @@ class subgraphs:
                 torch.save(self.g_sml, f'{dir}g_sml.pt')
                 torch.save(self.C, f'{dir}C.pt')
                 print(f'save at g_sml, assignment, and C at \n {red(dir)}')
-
         else:
             raise NotImplementedError
 
@@ -307,8 +283,8 @@ class subgraphs:
         imap, ret = {}, {}
         for i, (u, v) in enumerate(self.g_sml.edge_index.t().tolist()):
             if u > v:
-                imap[(v, u)] = [i] if (v, u) not in imap.keys() else imap[(v, u)] + [
-                    i]  # map node index (u, v) to edge index (i, j)
+                # map node index (u, v) to edge index (i, j)
+                imap[(v, u)] = [i] if (v, u) not in imap.keys() else imap[(v, u)] + [i]
             else:
                 imap[(u, v)] = [i] if (u, v) not in imap.keys() else imap[(u, v)] + [i]
         for _, (u, v) in enumerate(self.g_sml.edge_index.t().tolist()):
@@ -321,9 +297,9 @@ class subgraphs:
         return ret
 
     @timefunc
-    def get_subgraphs(self, verbose=False, viz=False):
+    def get_subgraphs(self, verbose=False):
         """ the main fucntions that is called
-            return a list of pyG graph
+            return a list of pyG graph corresponding to each edge in G'
         """
 
         subgraphs_list = []
@@ -341,20 +317,11 @@ class subgraphs:
                 indices = [idx for idx in indices if idx in _edge_indices]
                 new_edge_index, new_edge_attr = subgraph(indices, pyG.edge_index, pyG.edge_attr, relabel_nodes=True)
 
-            new_pyG = Data(edge_index=new_edge_index, edge_attr=new_edge_attr,
-                           ini=torch.ones(1) * ini[0])  # ini=torch.ones(new_edge_index.size(1)) * ini[0]
-
-            ## previous version
-            # new_pyG.x = torch.ones([len(indices), 1])  #  better handle x (done)
-
-            ## new version
-            # summary(new_pyG, 'before', highlight=True)
+            new_pyG = Data(edge_index=new_edge_index, edge_attr=new_edge_attr, ini=torch.ones(1) * ini[0])
             new_pyG.x = None
             new_pyG = LocalDegreeProfile()(new_pyG)
             new_pyG.x = Variable(new_pyG.x)
             new_pyG.x = torch.nn.functional.normalize(new_pyG.x, dim=0)
-
-            # summary(new_pyG, 'after', highlight=True)
             subgraphs_list += [new_pyG]
 
         del self.info
@@ -368,28 +335,6 @@ class subgraphs:
         summary(np.array(nodes_stats), 'node_stats')
         summary(np.array(edges_stats), 'edge_stats')
 
-        if False:  # viz the motifs
-            n = 4
-            scale = 3
-            fig = plt.figure(figsize=(scale * n, scale * n))
-            i = 0
-            while i < n ** 2:
-                idx = np.random.choice(range(len(subgraphs_list)), size=1)[0]
-                pyG = subgraphs_list[idx]
-                pyG.edge_weight = pyG.edge_attr.flatten()
-                if pyG.num_nodes < 3: continue
-                gspG = pyg2gsp(pyG)
-                ax = fig.add_subplot(n, n, i + 1)
-                ax.axis("off")
-                plot_gsp(ax, gspG=gspG, title='')
-                i += 1
-
-            fig.suptitle(f'Sampled subgraphs for {self.args.dataset}')
-            # fname = f'{fig_dir()}{self.args.dataset}-{self.args.ratio}-{self.args.method}.pdf'
-            # fname = fname.replace('_', '-')
-            fname = set_figname(self.args, name='subgraph')
-            fig.savefig(fname, bbox_inches='tight')
-
         return subgraphs_list
 
     def get_bipartitle_graphs(self):
@@ -397,12 +342,13 @@ class subgraphs:
         raise NotImplementedError
 
     def baseline0(self, normalization):
-        """ return the laplacian of baseline 0 """
-
+        """
+        return the laplacian of baseline 0, which is the Laplacian of G' without learning
+        Summary of g_sml in baseline0 (torch_geometric.data.data.Data):
+               edge_index               LongTensor          [2, 9476]      796.55(mean)   0.0(min) 1688.0(max) 770.0(median) 492.89(std) 1689.0(unique)
+               edge_weight              FloatTensor         [9476]          2.11(mean)   1.0(min)  10.0(max)   2.0(median)  1.12(std)  10.0(unique)
+        """
         g_sml = self.g_sml  # all index should be contiguous
-        # Summary of g_sml in baseline0 (torch_geometric.data.data.Data):
-        #       edge_index               LongTensor          [2, 9476]      796.55(mean)   0.0(min) 1688.0(max) 770.0(median) 492.89(std) 1689.0(unique)
-        #       edge_weight              FloatTensor         [9476]          2.11(mean)   1.0(min)  10.0(max)   2.0(median)  1.12(std)  10.0(unique)
         L = get_laplacian_mat(g_sml.edge_index, g_sml.edge_weight, g_sml.num_nodes, normalization=normalization)
         return L
 

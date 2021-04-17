@@ -3,9 +3,11 @@
 import collections
 import math
 import os
+import random
 import sys
 import time
 from functools import partial
+from itertools import chain
 from warnings import warn
 
 import matplotlib.pyplot as plt
@@ -15,13 +17,11 @@ import pandas as pd
 import torch
 import torch_geometric
 from colorama import init
+from pygsp import graphs
+from scipy.sparse import coo_matrix
 from termcolor import colored
 from torch_geometric.data import Data
 from torch_geometric.utils import subgraph, get_laplacian, from_networkx, to_networkx
-import random
-import numpy as np
-from scipy.sparse import coo_matrix
-from itertools import chain
 
 nan1 = 0.12345
 init()
@@ -467,6 +467,7 @@ def dict2name(d):
         name += f'{k}_{d[k]}_'
     return name[:-1]
 
+
 def update_dict(d1, d2):
     # use d1 to update d2, return updated d2.
     # keys of d1 has to be a subset of keys of d2.
@@ -664,26 +665,18 @@ def sparse_tensor2_sparse_numpyarray(sparse_tensor):
     return scipy_sparse_mat
 
 
-from pygsp import graphs
-from memory_profiler import profile
-
-
-# @profile
 def pyg2gsp(g):
-    """ convert pyG graph to gsp graph.
-        discard any info from pyG graph, and only take graph topology.
+    """
+    convert pyG graph to gsp graph.
+    discard any info from pyG graph, and only take graph topology.
      """
     assert isinstance(g, torch_geometric.data.Data)
-    n = g.num_nodes
     edge_indices, edge_weight = tonp(g.edge_index), tonp(g.edge_weight)
     row, col = edge_indices[0, :], edge_indices[1, :]
-    # memory intensive
-    # W = np.zeros((n, n))
-    # W[row, col] = edge_weight
 
     # memory efficient
+    n = g.num_nodes
     W = scipy.sparse.csr_matrix((edge_weight, (row, col)), shape=(n, n))
-    # W = W.toarray()
     gspG = graphs.Graph(W)
     return gspG
 
@@ -699,17 +692,6 @@ def dic2tsr(d, dev='cuda'):
         tsr[k] = d[k]
     return torch.tensor(tsr).to(dev)
 
-
-def slack(program = 'xyz'):
-    slack_cli = '/home/cai.507/anaconda3/bin/slack-cli '
-    cmd = f'{slack_cli} -d slackbot "Done program {program}"'
-    print(cmd)
-
-    try:
-        os.system(cmd)
-        os.system(f'{slack_cli} -d slackbot "Hello"')
-    except:
-        print('Exception (likely requests.exceptions.HTTPError)')
 
 if __name__ == '__main__':
     from scipy.sparse import csc_matrix
@@ -729,8 +711,8 @@ if __name__ == '__main__':
 
     exit()
     # edge = random_edge_index(n_edge=200, n_node=20)
-    from sample import sample_N2Nlandmarks
-    from graph_util import __map_back_from_edge, get_bipartite
+    from sparsenet.util.sample import sample_N2Nlandmarks
+    from sparsenet.util.graph_util import __map_back_from_edge, get_bipartite
 
     n_node, n_edge = 320, 1000
     node_dim = 1

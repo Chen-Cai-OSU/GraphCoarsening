@@ -13,27 +13,46 @@ import torch_geometric
 import torch_geometric.transforms as T
 from graph_coarsening import graph_lib
 from joblib import Parallel, delayed
-from pygsp import graphs
 from scipy.sparse.linalg import eigsh
 from torch_geometric.data import DataLoader, InMemoryDataset
 from torch_geometric.data.data import Data
-from torch_geometric.datasets import SNAPDataset, ShapeNet, Planetoid, GeometricShapes, TUDataset, CoraFull, Coauthor, \
-    PPI, Amazon, Reddit, FAUST, DynamicFAUST, Flickr
+from torch_geometric.datasets import ShapeNet, Planetoid, CoraFull, Coauthor, \
+    Amazon, Reddit, FAUST, DynamicFAUST, Flickr
 from torch_geometric.datasets.yelp import Yelp
-from torch_geometric.transforms import LocalDegreeProfile, Compose
+from torch_geometric.transforms import LocalDegreeProfile
 from torch_geometric.utils import from_networkx, degree
 from torch_geometric.utils.subgraph import k_hop_subgraph
 from torch_geometric.utils.undirected import to_undirected
 
 from sparsenet.model.loss import get_laplacian_mat
 from sparsenet.util.graph_util import subgraphs
-from sparsenet.util.util import red, timefunc, largest_cc, num_comp, fix_seed, tonp, banner, dict2name, summary, \
+from sparsenet.util.name_util import ego_graphs
+from sparsenet.util.util import red, timefunc, largest_cc, num_comp, fix_seed, banner, dict2name, summary, \
     random_pygeo_graph, sparse_tensor2_sparse_numpyarray
-from sparsenet.util.viz_util import plot3dpts
 
 data_dir = os.path.join(osp.dirname(osp.realpath(__file__)), '..', 'data')
 egograph_dir = os.path.join(data_dir, 'egographs')
 fix_seed()
+
+
+class test_parallel:
+    """
+    http://qingkaikong.blogspot.com/2016/12/python-parallel-method-in-class.html
+    """
+
+    def __init__(self):
+        pass
+
+    def run(self, cmd):
+        assert isinstance(cmd, str)
+        os.system(cmd)
+
+    def run_parallel(self, cmds, n_jobs=1):
+        Parallel(n_jobs=n_jobs)(delayed(unwrap_self)(cmd) for cmd in cmds)
+
+
+def unwrap_self(cmd):
+    return test_parallel().run(cmd)
 
 
 @timefunc
@@ -65,23 +84,6 @@ def shape_data(n, _k=5, name='ShapeNet'):
     return rets
 
 
-@timefunc
-def planetoid():
-    """
-    :param dataset: Cora, CiteSeer, CiteSeer
-    :return: torch_geometric.data.data.Data
-    """
-    graphs = []
-    for dataset in ['Cora', 'CiteSeer', 'PubMed']:
-        path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset)
-        dataset = Planetoid(path, dataset, pre_transform=input_check)
-        # g = Data(x=dataset.data.x, edge_index=dataset.data.edge_index)
-        g = dataset.data
-        # g = input_check(g)
-        graphs.append(g)
-    return graphs
-
-
 def handle_num_nodes(g):
     """ for some dataset, the num_of_nodes is [100] instead of 100.
         this function handles this case
@@ -97,69 +99,47 @@ def handle_num_nodes(g):
         raise NotImplementedError
     return g
 
-
-def hybrid_graphs(name='amazons'):
-    g = []
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', name)
-    if name == 'amazons':
-        g.append(Amazon(osp.join(path, 'photo'), name='photo', pre_transform=input_check).data)
-        g.append(Amazon(osp.join(path, 'computers'), name='computers', pre_transform=input_check).data)
-    elif name == 'coauthors':
-        for dataset in ['Coauthor-CS', 'Coauthor-physics']:
-            kwargs = {"hop": 3, "size": 20, "dataset": dataset, 's_low': 5000, 's_high': 10000}
-            data = EgoGraphs(**kwargs)
-            g.append(data[0])
-
-        # g.append(Coauthor(osp.join(path, 'cs'), name='cs', pre_transform=input_check).data)
-        # g.append(Coauthor(osp.join(path, 'physics'), name='physics', pre_transform=input_check).data)
-    # g  = [input_check(g_) for g_ in g]
-    g = [handle_num_nodes(g_) for g_ in g]
-    return g
-
-
-class test_parallel:
-    """
-    http://qingkaikong.blogspot.com/2016/12/python-parallel-method-in-class.html
-    """
-
+class MiscDataset(object):
     def __init__(self):
         pass
 
-    def run(self, cmd):
-        assert isinstance(cmd, str)
-        os.system(cmd)
+    @staticmethod
+    def hybrid_graphs(name='amazons'):
+        g = []
+        path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', name)
+        if name == 'amazons':
+            g.append(Amazon(osp.join(path, 'photo'), name='photo', pre_transform=input_check).data)
+            g.append(Amazon(osp.join(path, 'computers'), name='computers', pre_transform=input_check).data)
+        elif name == 'coauthors':
+            for dataset in ['Coauthor-CS', 'Coauthor-physics']:
+                kwargs = {"hop": 3, "size": 20, "dataset": dataset, 's_low': 5000, 's_high': 10000}
+                data = EgoGraphs(**kwargs)
+                g.append(data[0])
+            [handle_num_nodes(g_) for g_ in g]
+        return g
 
-    def run_parallel(self, cmds, n_jobs=1):
-        Parallel(n_jobs=n_jobs)(delayed(unwrap_self)(cmd) for cmd in cmds)
 
-
-def unwrap_self(cmd):
-    return test_parallel().run(cmd)
-
-
-def egographs(hop=4, size=5, dataset='PubMed', s_low=200, s_high=5000, sample='ego', n_vec=210, w_len=5000,
+def egographs(hop=4, size=5, dataset='PubMed',
+              s_low=200, s_high=5000,
+              sample='ego', n_vec=210, w_len=5000,
               include_self=True):
     """
-    :param hop:
-    :param size:
-    :param dataset:
-    :param s_low:
-    :param s_high:
+    :param hop: hop size to sample subgraphs
+    :param size: number of subgraphs
+    :param dataset: name of dataset
+    :param s_low: lower bound for the size of subgraphs
+    :param s_high: upper bound for the size of subgraphs
     :param sample: ego or rw
     :param n_vec: num of eigenvector precomputed
     :param w_len: num of random walk length
     :param include_self: if True, include the eigendecomposition of origian graph
-    :return:
+    :return: a list of PyG graphs
     """
 
     path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset)
-
+    assert dataset in ego_graphs
     if dataset == 'PubMed':
         path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset)
-        g = Planetoid(path, dataset).data
-    elif dataset == 'wiki-vote':
-        g = snap_data(name=dataset)[0]
-    elif dataset == 'CiteSeer':
         g = Planetoid(path, dataset).data
     elif dataset == 'CoraFull':
         g = CoraFull(path).data
@@ -177,28 +157,24 @@ def egographs(hop=4, size=5, dataset='PubMed', s_low=200, s_high=5000, sample='e
         g = Reddit(path, transform=None, pre_transform=None).data
     elif dataset == 'flickr':
         g = Flickr(path, transform=None, pre_transform=None).data
-    elif dataset == 'PPI':
-        g = PPI(path)
-        for g_ in g:
-            print(g_)
-        exit()
     else:
         raise NotImplementedError
 
     graphs = []
+
     if sample == 'ego':
         indices = np.random.choice(range(g.num_nodes), replace=False, size=size)
-        print(f'sample from {indices}')
         for idx in indices:
             print(f'Processing egograph at {idx}')
             subset, edge_index, mapping, edge_mask = k_hop_subgraph(int(idx), hop, g.edge_index)
             g_sub = Data(edge_index=edge_index)
-            if g_sub.num_nodes < s_high and g_sub.num_nodes > s_low:
+            n_sub = g_sub.num_nodes
+            if n_sub < s_high and n_sub > s_low:
                 g_sub = input_check(g_sub, size_check=False)
                 graphs.append(g_sub)
             else:
-                print(
-                    f'Skip egograph at {idx} due to size mismatch ({g_sub.num_nodes}). s_low {s_low}, s_high {s_high}.')
+                print(f'Skip egograph at {idx} due to size mismatch ({n_sub}). s_low {s_low}, s_high {s_high}.')
+
     elif sample == 'rw':
         from torch_geometric.data import GraphSAINTRandomWalkSampler
         g.edge_attr_ = g.edge_attr
@@ -211,12 +187,10 @@ def egographs(hop=4, size=5, dataset='PubMed', s_low=200, s_high=5000, sample='e
                                              num_steps=size, sample_coverage=50,
                                              save_dir=None,
                                              num_workers=0)
-
         # parallel version
         gs = [g for g in loader][1:]
         for i, g in enumerate(gs):
-            g.edge_attr = None
-            g.x = None
+            g.x, g.edge_attr = None, None
             gs[i] = g
         graphs = Parallel(n_jobs=1)(
             delayed(input_check)(g, size_check=False, k=n_vec) for g in gs)  # important: change back
@@ -231,7 +205,6 @@ def egographs(hop=4, size=5, dataset='PubMed', s_low=200, s_high=5000, sample='e
         raise NotImplementedError
 
     g.edge_attr = None
-
     if include_self:
         g = input_check(g, k=n_vec)
         summary(g, dataset)
@@ -316,13 +289,9 @@ def input_check(g, size_check=True, eig=True, verbose=True, k=100):
 
     :param eig: precompute eig
     """
+    assert isinstance(g, Data), f'g is {type(g)}'
     allowed_attributes = ['edge_weight', 'edge_attr', 'edge_index', 'pos', ]
     allowed_attributes += ['sym_vecs', 'sym_vals', 'None_vecs', 'None_vals']
-    # if (set(allowed_attributes) - set(['pos', 'x'])) <= set(g.keys):
-    #     print(red(f'All attributes has been precomputed. Skip input check.'))
-    #     return g
-
-    assert isinstance(g, Data), f'g is {type(g)}'
 
     if g.is_directed():
         warn('Convert directed pyG to undirect.')
@@ -330,7 +299,6 @@ def input_check(g, size_check=True, eig=True, verbose=True, k=100):
         g.edge_index = new_edge_index
 
     if g.contains_isolated_nodes():
-        # summary(g, 'g with isolated nodes')
         num_comp(g)
         g = largest_cc(g)
         warn(f'input graph contains isolated nodes. Took the largest comp ({g.num_nodes})')
@@ -350,7 +318,6 @@ def input_check(g, size_check=True, eig=True, verbose=True, k=100):
     # set x attribute
     if 'pos' in g.keys:
         g.x = g.pos
-        # g.__setitem__('pos', None)
 
     g = LocalDegreeProfile()(g)  # may need to change to other features
     g.x = torch.nn.functional.normalize(g.x, dim=0)
@@ -384,63 +351,14 @@ def __add_default_weight(g, weight=1):
     return g
 
 
-def pyg2gsp(g):
-    """ convert pyG graph to gsp graph.
-        discard any info from pyG graph, and only take graph topology.
-     """
-    assert isinstance(g, torch_geometric.data.Data)
-    n = g.num_nodes
-    edge_indices, edge_weight = tonp(g.edge_index), tonp(g.edge_weight)
-
-    row, col = edge_indices[0, :], edge_indices[1, :]
-    W = np.zeros((n, n))
-    W[row, col] = edge_weight
-    assert (W == W.T).all()
-    gspG = graphs.Graph(W)
-    return gspG
-
-
-def gsp2pyg(g, verbose=False):
-    """ convert gsp graph to pyG graph """
-    W = g.W.todense()
-    g_nx = nx.from_numpy_array(W)
-    if verbose: print(nx.info(g_nx))
-    pyG = from_networkx(g_nx)
-    pyG.edge_weight = pyG.weight
-    pyG = input_check(pyG)
-    # summary(pyG, 'pyG')
-    return pyG
-
-
-@timefunc
-def snap_data(name='ego-facebook'):
-    """
-    :param name: ego-facebook
-    :return: a list of pyG graph. Second graph is the largest
-    """
-    data = SNAPDataset(data_dir, name)
-    graphs = [input_check(graph) for graph in data]
-    graphs = [g for g in graphs if g != None]
-    return graphs
-
-
-def tu_data(name='COLLAB'):
-    """ load first 50 COLLAB graph """
-
-    data = TUDataset(data_dir, name)
-    graphs = [data[i] for i in range(1000)]
-    graphs = [input_check(graph) for graph in graphs]
-    graphs = [g for g in graphs if g.x.size(0) > 100]
-    return graphs
-
-
 def syth_graphs(n=10, size=1000, type='er'):
+    # generate a list of pyG synthetic graphs
     graphs = []
     geo_constant = size * (0.1) ** 2
     er_constant = size * 0.01
 
     for i in range(n):
-        if type == 'er':
+        if type in ['er', 'random_er']:
             g = nx.erdos_renyi_graph(size, er_constant / size, seed=i)
             print(nx.info(g))
         elif type == 'geo':
@@ -456,8 +374,7 @@ def syth_graphs(n=10, size=1000, type='er'):
                      [0.015, 0.04]]
             g = nx.stochastic_block_model(sizes, probs, seed=i)
         else:
-            NotImplementedError
-
+            raise NotImplementedError
         size += 100
         graphs.append(from_networkx(g))
     graphs = [input_check(graph) for graph in graphs]
@@ -466,7 +383,7 @@ def syth_graphs(n=10, size=1000, type='er'):
 
 def set_loader(g, bs, shuffle=False, args=None):
     """
-    :param g:
+    :param g: pyG graph
     :param bs:
     :param shuffle:
     :return:
@@ -476,7 +393,7 @@ def set_loader(g, bs, shuffle=False, args=None):
     summary(sub.g_sml, 'g_sml (in set loader)')
 
     keys = sub.double_edges
-    subgraphs_list = sub.get_subgraphs(verbose=False, viz=args.viz)
+    subgraphs_list = sub.get_subgraphs(verbose=False, )
     data = list(zip(keys, subgraphs_list))
     loader = DataLoader(data, batch_size=bs, shuffle=shuffle, num_workers=0)
 
@@ -511,31 +428,18 @@ class NonEgoGraphs(InMemoryDataset):
 
     def _select_datasets(self):
         dataset = self.dataset
-        if dataset == 'ego_facebook':
-            datasets = snap_data(name='ego-facebook')  # shape_data(n=1, _k=20)
-        elif dataset == 'collab':
-            datasets = tu_data(name='COLLAB')
-        elif dataset == 'shape':
+        if dataset == 'shape':
             datasets = shape_data(50, _k=10)
         elif dataset == 'random_geo':
-            datasets = syth_graphs(n=50, size=700, type='geo')  # random_geo(n=10, size=512)
-        elif dataset == 'random_er':
-            datasets = syth_graphs(n=50, size=512, type='er')  # random_er(n=10, size=512)
-        elif dataset == 'sbm':
-            datasets = syth_graphs(n=50, size=512, type='sbm')
-        elif dataset == 'ws':
-            datasets = syth_graphs(n=50, size=512, type='ws')
-        elif dataset == 'ba':
-            datasets = syth_graphs(n=50, size=512, type='ba')
-        elif dataset == 'planetoid':
-            datasets = planetoid()
+            datasets = syth_graphs(n=50, size=700, type='geo')
+        elif dataset in ['sbm', 'ws', 'ba', 'random_er']:
+            datasets = syth_graphs(n=50, size=512, type=dataset)
         elif dataset in ['yeast', 'airfoil', 'bunny', 'minnesota']:
             datasets = loukas_data(name=dataset)
         elif dataset in ['amazons', 'coauthors']:
-            datasets = hybrid_graphs(name=dataset)
+            datasets = MiscDataset().hybrid_graphs(name=dataset)
         else:
-            NotImplementedError
-
+            raise NotImplementedError
         return datasets
 
     def process(self):
@@ -551,17 +455,6 @@ class NonEgoGraphs(InMemoryDataset):
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
-
-
-def clip_feat(g, args, dim=50):
-    # given a pyG graph, clip the precomputed feature(800 dim) to k-dim
-    if args.lap in ['None', 'none', None]:
-        g.None_vecs = g.None_vecs[:, :dim]
-        if 'sym_vecs' in g: del g.sym_vecs
-    elif args.lap == 'sym':
-        g.None_vecs = g.sym_vecs[:, :dim]
-        del g.None_vecs
-    return g
 
 
 class data_loader:
@@ -647,39 +540,115 @@ class data_loader:
 
             assert max(args.train_idx, args.test_idx) < len(datasets), \
                 f'Dataset is of len {len(datasets)}. Max idx is {max(args.train_idx, args.test_idx)}'
+
         print(f'Finish loading dataset {dataset} (len: {red(len(datasets))})')
 
         datasets = [handle_num_nodes(data) for data in datasets]
-        datasets = [clip_feat(data, args, dim=args.n_bottomk) for data in datasets]
+        datasets = [self.clip_feat(data, args, dim=args.n_bottomk) for data in datasets]
         datasets = datasets[:self.n_graph]
+
         self.datasets = datasets
         del datasets
 
-    # @profile
-    def load(self, args, mode):
+    def select_kwargs_for_egographs(self, dataset='wiki-vote'):
+
+        if dataset == 'pubmeds':
+            # datasets = egographs(hop=4, size=5, dataset='PubMed')
+            # kwargs = {'dataset': 'PubMed', 'hop': 5, 'size': 20, 's_low': 5000, 's_high': 10000}
+            # kwargs = {'dataset': 'PubMed', 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1, 'sample':'rw'}
+            # datasets = EgoGraphs(**kwargs)[:self.n_graph]
+            kwargs = {'dataset': 'PubMed', 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1,
+                      'sample': 'rw', 'n_vec': 500, 'w_len': args.w_len, 'include_self': False}
+            datasets = EgoGraphs(**kwargs)[:self.n_graph]
+            datasets = [data for data in datasets]
+
+            kwargs = {'dataset': 'PubMed', 'hop': -1, 'size': 1, 's_low': -1, 's_high': -1, 'sample': 'rw',
+                      'include_self': True, 'n_vec': 500, 'w_len': 15000}
+            datasets = [EgoGraphs(**kwargs)[0]] + datasets
+
+        elif dataset == 'flickr':
+            # load two dataset seprately, one include flickr itself, one include only subgraphs
+            kwargs = {'dataset': 'flickr', 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1,
+                      'sample': 'rw', 'n_vec': 500, 'w_len': args.w_len, 'include_self': False}
+            datasets = EgoGraphs(**kwargs)[:self.n_graph]
+            datasets = [data for data in datasets]
+
+            # kwargs = {'dataset': 'flickr', 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1, 'sample': 'rw'}
+            kwargs = {'dataset': 'flickr', 'hop': -1, 'size': 1, 's_low': -1, 's_high': -1,
+                      'sample': 'rw', 'n_vec': 500, 'w_len': 15000, 'include_self': True}
+            datasets = [EgoGraphs(**kwargs)[0]] + datasets
+
+        elif dataset == 'reddit':
+            kwargs = {'dataset': 'reddit', 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1, 'sample': 'rw'}
+            datasets_ = EgoGraphs(**kwargs)
+            datasets = datasets_[:1] + datasets_[2:3] + datasets_[2:15]
+            del datasets_
+            print(datasets)
+            for d in datasets:
+                print(d)
+            # exit()
+
+        elif dataset == 'wiki-vote':
+            kwargs = {'dataset': 'wiki-vote', 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1, 'sample': 'rw'}
+            # kwargs = {'hop': 3, 'size': 5, 'dataset': 'wiki-vote', 's_low': 200, 's_high': 5000}
+            datasets = EgoGraphs(**kwargs)
+        elif dataset == 'citeseers':
+            kwargs = {'dataset': 'CiteSeer', 'hop': 5, 'size': 20, 's_low': 200, 's_high': 5000}
+            datasets = EgoGraphs(**kwargs)
+        elif dataset == 'coauthor-cs':
+            kwargs = {'dataset': 'Coauthor-CS', 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1, 'sample': 'rw',
+                      'n_vec': 800, 'w_len': args.w_len, }
+            # kwargs = {'dataset': 'Coauthor-CS', 'hop': 4, 'size': 20, 's_low': 5000, 's_high': 10000}
+            datasets = EgoGraphs(**kwargs)[:self.n_graph]
+
+        elif dataset == 'coauthor-physics':
+            kwargs = {'dataset': 'Coauthor-physics', 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1,
+                      'sample': 'rw', 'n_vec': 800, 'w_len': args.w_len, }
+            # kwargs = {'dataset': 'Coauthor-physics', 'hop': 4, 'size': 20, 's_low': 5000, 's_high': 10000}
+            datasets = EgoGraphs(**kwargs)
+
+        elif dataset == 'amazon-photo':
+            kwargs = {'dataset': 'Amazon-photo', 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1,
+                      'sample': 'rw'}
+            # kwargs = {'dataset': 'Amazon-photo', 'hop': 4, 'size': 20, 's_low': 5000, 's_high': 10000} # both are not working
+            datasets = EgoGraphs(**kwargs)
+        elif dataset == 'amazon-computers':
+            kwargs = {'dataset': 'Amazon-computers', 'hop': 4, 'size': 20, 's_low': 5000, 's_high': 10000}
+            datasets = EgoGraphs(**kwargs)
+        else:
+            raise NotImplementedError
+
+        assert max(args.train_idx, args.test_idx) < len(datasets), \
+            f'Dataset is of len {len(datasets)}. Max idx is {max(args.train_idx, args.test_idx)}'
+
+    def load(self, args, mode, verbose=False):
         assert mode in ['train', 'test']
         assert max(args.train_idx, args.test_idx) < len(self.datasets), \
             f'Dataset is of len {len(self.datasets)}. Max idx is {max(args.train_idx, args.test_idx)}'
 
         if mode == 'train':
+            # important: to save memory, remove it when it is loaded. works only when each train graph is used once
             g = self.datasets[args.train_idx]
-            # important: to save memory, remove it when it is loaded
             self.datasets[args.train_idx] = None
         else:
             g = self.datasets[args.test_idx]
             print(f'Test: Load {red(args.test_idx)}-th shape from dataset {red(self.dataset)}.')
 
-        summary(g, 'original_graph')
+        if verbose: summary(g, 'original_graph')
         r = np.clip(args.ratio, 0, 0.999)
         n_node_sml = int(np.ceil((1 - r) * g.num_nodes))
         return g, n_node_sml
 
-
-def simple_shape(k=10):
-    root = os.path.join(osp.dirname(osp.realpath(__file__)), '..', 'data/geoshape')
-    shapes = GeometricShapes(root=root, transform=Compose([T.SamplePoints(1024), T.KNNGraph(k=k)]))
-    graphs = [input_check(graph) for graph in shapes]
-    return graphs[14:16], shapes[14:16]
+    @staticmethod
+    def clip_feat(g, args, dim=50):
+        # given a pyG graph, clip the precomputed feature(800 dim) to k-dim
+        if args.lap in ['None', 'none', None]:
+            g.None_vecs = g.None_vecs[:, :dim]
+            if 'sym_vecs' in g: del g.sym_vecs
+        elif args.lap == 'sym':
+            g.None_vecs = g.sym_vecs[:, :dim]
+            del g.None_vecs
+        return g
 
 
 @timefunc
@@ -705,6 +674,7 @@ def loukas_data(name='yeast'):
 
 
 import argparse
+
 parser = argparse.ArgumentParser(description='Baseline for graph sparsification')
 parser.add_argument('--k', type=int, default=2, help='num of k')
 
@@ -733,33 +703,6 @@ if __name__ == '__main__':
 
     exit()
 
-    # graphs = hybrid_graphs(name='amazons')
-    graphs = hybrid_graphs(name='coauthors')
-    for g in graphs:
-        summary(g.num_nodes)
-    exit()
-
-    graphs = hybrid_graphs()
-    print(graphs)
-    exit()
-
-    for name in [
-        'wiki-vote']:  # ['soc-epinions1', 'ego-gplus', 'ego-twitter', 'soc-livejournal1', 'soc-pokec', 'soc-slashdot0811', 'soc-slashdot0922', 'wiki-vote', 'ego-facebook']:
-        try:
-            graphs = snap_data(name=name)
-            print(graphs)
-            print()
-        except KeyError:
-            print(f'KeyError for {name}\n')
-
-    exit()
-
-    graphs = planetoid()
-    for i, graph in enumerate(graphs):
-        summary(graph, f'{i}th graph')
-        # sample_N2Nlandmarks(graph, min(100, graph.num_nodes))
-
-    exit()
 
     graphs = \
         ['minnesota', 'bunny', 'airfoil', 'yeast']
@@ -770,31 +713,8 @@ if __name__ == '__main__':
         summary(dataset)
 
     exit()
-    graphs = planetoid()
-    for g in graphs:
-        summary(g)
-
-    exit()
-    graphs = tu_data('REDDIT-BINARY')  # syth_graphs(10, 500, type='geo')
-    for g in graphs:
-        summary(g)
-
-    exit()
-    tudata = tu_data()
-    data = [graph for graph in tudata if num_comp(graph) == 1]
-    print(len(data))
-    exit()
     # _, shapes = simple_shape(k=10)  # shape_data(3, _k=5)
     shapes = shape_data(10, _k=10)
-    exit()
-    for i, graph in enumerate(shapes):
-        # if i % 30 != 0: continue
-        # face, pts = graph.face, graph.pos
-        pts = graph.pos
-        summary(graph, f'shape {i}')
-        plot3dpts(tonp(pts))
-        # plot_example(tonp(face), tonp(pts))
-
     exit()
     g = shape_data(3, _k=10)[2]  # simple_shape(k=10)[0]  #
     summary(g)

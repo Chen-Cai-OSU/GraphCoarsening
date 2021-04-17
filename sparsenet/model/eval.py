@@ -12,7 +12,6 @@ from sparsenet.model.loss import get_laplacian_mat
 from sparsenet.util.data import set_loader
 from sparsenet.util.loss_util import loss_manager
 from sparsenet.util.torch_util import sparse_mm
-from sparsenet.util.train_util import check_laplacian
 from sparsenet.util.util import summary, pf, red, banner, fix_seed, timefunc as tf
 
 fix_seed()
@@ -41,7 +40,8 @@ def correction(LM, L2, args):
         # remark: not ideal but a reasonable workaround. Memory intensive.
         # L2_correction = torch.sparse.mm(torch.sparse.mm(LM.invQ, L2.to_dense()).to_sparse(),
         #                                 LM.invQ.to_dense())
-        # L2_correction = L2_correction.to_sparse() # remark: has small difference with current version
+        # L2_correction = L2_correction.to_sparse()
+        # remark: has small difference with current version
         L2_correction = sparse_mm(L2, LM.invQ)
     else:
         L2_correction = L2
@@ -61,62 +61,55 @@ class tester(object):
     def set_test_data(self, args, data_loader, verbose=False):
         """ set the data for evalulation """
         self.rayleigh_flag = True if args.loss == 'rayleigh' else False
-
         if args.test_idx in self.test_data.keys():
             print(f'Test graph {args.test_idx} has been processed. Skip.')
             return
 
-        g_T, _ = data_loader.load(args, mode='test')
-        self.original_graph[args.test_idx] = g_T
+        g, _ = data_loader.load(args, mode='test')
+        self.original_graph[args.test_idx] = g
 
-        test_loader, sub_T, n_sml_T = set_loader(g_T, args.bs, shuffle=True, args=args)
+        test_loader, sub, n_sml = set_loader(g, args.bs, shuffle=True, args=args)
 
-        L1_T = sub_T.L(g_T, normalization=args.lap)
-        T_L2_ = sub_T.baseline0(normalization=args.lap)
+        L1 = sub.L(g, normalization=args.lap)
+        L2_ = sub.baseline0(normalization=args.lap)
 
-        L1_T_comb = sub_T.L(g_T, normalization=None) if args.dynamic else None
-        L2_T_comb = sub_T.baseline0(normalization=None) if args.dynamic else None
-        self.L1_T_comb = L1_T_comb
-        self.test_data_comb[args.test_idx] = L2_T_comb
+        L1_comb = sub.L(g, normalization=None) if args.dynamic else None
+        L2_comb = sub.baseline0(normalization=None) if args.dynamic else None
+        self.L1_comb = L1_comb
+        self.test_data_comb[args.test_idx] = L2_comb
 
-        self.T_L2_ = T_L2_
-        T_L2_trival = sub_T.trivial_L(sub_T.g_sml)
+        self.L2_ = L2_
+        L2_trival = sub.trivial_L(sub.g_sml)
 
-        LM_T = loss_manager(signal='bottomk', device=self.dev)
+        LM = loss_manager(signal='bottomk', device=self.dev)
 
         try:
-            LM_T.set_precomute_x(g_T, args, k=args.n_bottomk - args.offset)
+            LM.set_precomute_x(g, args, k=args.n_bottomk - args.offset)
         except:
-            print(red('Recompute eigenvector'))
-            LM_T.set_x(L1_T, g_T.num_nodes, args.n_bottomk - args.offset, which='SM')
+            LM.set_x(L1, g.num_nodes, args.n_bottomk - args.offset, which='SM')
 
-        LM_T.set_C(sub_T.C)
-        LM_T.set_s(g_T.num_nodes, k=args.n_bottomk)
+        LM.set_C(sub.C)
+        LM.set_s(g.num_nodes, k=args.n_bottomk)
 
-        bl_loss_T, bl_ratio_loss_T = LM_T.quaratic_loss(L1_T, T_L2_, sub_T.assignment, inv=args.inv,
-                                                        rayleigh=self.rayleigh_flag, dynamic=args.dynamic,
-                                                        comb=(L1_T_comb, L2_T_comb))
+        params = {'inv': args.inv, 'dynamic': args.dynamic, 'rayleigh': self.rayleigh_flag, }
+        bl_loss, bl_ratio_loss = LM.quaratic_loss(L1, L2_, sub.assignment, comb=(L1_comb, L2_comb), **params)
+        trival_loss, _ = LM.quaratic_loss(L1, L2_trival, sub.assignment, comb=(L1_comb, L2_trival), **params)  # todo: look at trivial loss
+        L2_correction = correction(LM, L2_, args)
+        
+        bl_eigloss = LM.eigen_loss(L1, L2_correction, args.n_bottomk - args.offset, args=args, g1=g) if args.valeigen else torch.tensor(-1)
 
-        trival_loss_T, _ = LM_T.quaratic_loss(L1_T, T_L2_trival, sub_T.assignment, inv=args.inv,
-                                              rayleigh=self.rayleigh_flag, dynamic=args.dynamic,
-                                              comb=(L1_T_comb, T_L2_trival))  # todo: look at trivial loss
-        T_L2_correction = correction(LM_T, T_L2_, args)
-
-        bl_eigen_loss_T = LM_T.eigen_loss(L1_T, T_L2_correction, args.n_bottomk - args.offset, args=args,
-                                          g1=g_T) if args.valeigen else torch.tensor(-1)  # todo: change back
-
+        edge_weight_sml_buffer = deepcopy(sub.g_sml.edge_weight).to(self.dev)
+        edge_index_sml = sub.g_sml.edge_index.to(self.dev)
+        test_data = g, test_loader, edge_weight_sml_buffer, sub, L1, \
+                    bl_loss, bl_ratio_loss, trival_loss, \
+                    bl_eigloss, n_sml, edge_index_sml, LM
+        self.test_data[args.test_idx] = test_data
 
         if verbose:
-            summary(L1_T, 'L1_T')
-            summary(T_L2_, 'T_L2_')
-            print(f'Baseline 0 loss: {red(bl_loss_T)}')
+            summary(L1, 'L1')
+            summary(L2_, 'L2_')
+            print(f'Baseline 0 loss: {red(bl_loss)}')
 
-        edge_weight_sml_T_buffer = deepcopy(sub_T.g_sml.edge_weight).to(self.dev)
-        edge_index_sml_T = sub_T.g_sml.edge_index.to(self.dev)
-
-        test_data = g_T, test_loader, edge_weight_sml_T_buffer, sub_T, L1_T, \
-                    bl_loss_T, bl_ratio_loss_T, trival_loss_T, bl_eigen_loss_T, n_sml_T, edge_index_sml_T, LM_T
-        self.test_data[args.test_idx] = test_data
         banner(f'Finish setting {args.dataset} graph {args.test_idx}', compact=True, ch='-')
 
     def delete_test_data(self, idx):
@@ -125,62 +118,57 @@ class tester(object):
     @tf
     def eval(self, model, args, verbose=False):
 
-        t0_ = time()
+        t0 = time()
         model.eval()
 
-        g_T, test_loader, edge_weight_sml_T_buffer, sub_T, L1_T, bl_loss_T, \
-        bl_ratio_loss_T, trival_loss_T, bl_eigen_loss_T, n_sml_T, edge_index_sml_T, LM_T = \
+        g, test_loader, edge_weight_sml_buffer, sub, L1, bl_loss, \
+        bl_ratio_loss, trival_loss, bl_eigloss, n_sml, edge_index_sml, LM = \
             self.test_data[args.test_idx]
 
-        L2_ini_comb = self.test_data_comb[
-            args.test_idx]  # get_laplacian_mat(edge_index_sml_T, edge_weight_sml_T_buffer, n_sml_T, normalization=None) if args.dynamic else None
+        L2_ini_comb = self.test_data_comb[args.test_idx]  # get_laplacian_mat(edge_index_sml, edge_weight_sml_buffer, n_sml, normalization=None) if args.dynamic else None
 
-        L1_T_comb = sub_T.L(g_T, normalization=None) if args.dynamic else None
-        # summary(L2_ini_comb, 'Test: L2_ini_comb', highlight=True)
-        # summary(L1_T_comb, 'Test: L1_T_comb', highlight=True)
-        # summary(edge_weight_sml_T_buffer, 'Test: edge_weight_sml_T_buffer', highlight=True)
-        comb = (L1_T_comb, L2_ini_comb)
+        L1_comb = sub.L(g, normalization=None) if args.dynamic else None
+        comb = (L1_comb, L2_ini_comb)
 
-        for step_, batch_T in enumerate(test_loader):
-            pred_T, indices_batch_T = apply_gnn(batch_T, model, self.dev, ini=args.ini)
-            edge_weight_sml_T = V(edge_weight_sml_T_buffer)
-            edge_weight_sml_T[indices_batch_T] = pred_T.view(-1).repeat_interleave(2)
-            # L2_T = get_laplacian_mat(edge_index_sml_T, edge_weight_sml_T, n_sml_T, normalization=args.lap)
+        for step_, batch in enumerate(test_loader):
+            pred, indices_batch = apply_gnn(batch, model, self.dev, ini=args.ini)
+            edge_weight_sml = V(edge_weight_sml_buffer)
+            edge_weight_sml[indices_batch] = pred.view(-1).repeat_interleave(2)
+            # L2 = get_laplacian_mat(edge_index_sml, edge_weight_sml, n_sml, normalization=args.lap)
 
             if verbose:
-                summary(pred_T, f'test: pred_T at step {step_}')
-                summary(edge_weight_sml_T, f'test: edge_weight_sml_T at {step_}')
-                summary(indices_batch_T, f'test: indices_batch_T at {step_}')
+                summary(pred, f'test: pred at step {step_}')
+                summary(edge_weight_sml, f'test: edge_weight_sml at {step_}')
+                summary(indices_batch, f'test: indices_batch at {step_}')
                 print()
 
-        L2_T = get_laplacian_mat(edge_index_sml_T, edge_weight_sml_T, n_sml_T, normalization=args.lap)
-        L2_T_correction = correction(LM_T, L2_T, args)
+        L2 = get_laplacian_mat(edge_index_sml, edge_weight_sml, n_sml, normalization=args.lap)
+        L2_correction = correction(LM, L2, args)
 
-        loss_T, ratio_loss_T = LM_T.quaratic_loss(L1_T, L2_T, sub_T.assignment, inv=args.inv,
+        loss, ratio_loss = LM.quaratic_loss(L1, L2, sub.assignment, inv=args.inv,
                                                   rayleigh=self.rayleigh_flag,
-                                                  verbose=True)  # dynamic=args.dynamic, comb=comb)
-
+                                                  verbose=True) 
         # expansive, so only calculate when needed
-        eigen_loss_T = LM_T.eigen_loss(L1_T, L2_T_correction, args.n_bottomk - args.offset, args=args,
-                                       g1=g_T) if args.valeigen else torch.tensor(-1)  # todo: change back
+        eigloss = LM.eigen_loss(L1, L2_correction, args.n_bottomk - args.offset, args=args,
+                                       g1=g) if args.valeigen else torch.tensor(-1)  # todo: change back
 
-        t1_ = time()
-        msg = 'Generalize!' if loss_T < min(bl_loss_T, trival_loss_T) else ''
-        n_sig = 3
+        t1 = time()
+        msg = 'Generalize!' if loss < min(bl_loss, trival_loss) else ''
+        nsig = 3
         logging.info(' ' * 12 +
                      f'Graph-{args.dataset}: {args.test_idx}. '
-                     f'{red("Test-Val")}({pf(t1_ - t0_, 1)}):  {pf(loss_T, n_sig)}({pf(ratio_loss_T, n_sig)}) / '
-                     f'{pf(bl_loss_T, n_sig)}({pf(bl_ratio_loss_T, n_sig)}) / {pf(trival_loss_T)}. {red(msg)}. '
-                     f'Eigenloss: {pf(eigen_loss_T, n_sig)}. '
-                     f'Bl_Eigenloss: {pf(bl_eigen_loss_T, n_sig)}.')
+                     f'{red("Test-Val")}({pf(t1 - t0, 1)}):  {pf(loss, nsig)}({pf(ratio_loss, nsig)}) / '
+                     f'{pf(bl_loss, nsig)}({pf(bl_ratio_loss, nsig)}) / {pf(trival_loss)}. {red(msg)}. '
+                     f'Eigenloss: {pf(eigloss, nsig)}. '
+                     f'Bl_Eigenloss: {pf(bl_eigloss, nsig)}.')
 
         n_gen = 1 if msg == 'Generalize!' else 0
-        impr_ratio = min(bl_loss_T, trival_loss_T) / loss_T
-        eigen_ratio = (bl_eigen_loss_T - eigen_loss_T) / bl_eigen_loss_T  # bl_eigen_loss_T / eigen_loss_T
+        impr_ratio = min(bl_loss, trival_loss) / loss
+        eigen_ratio = (bl_eigloss - eigloss) / bl_eigloss  
         return n_gen, impr_ratio.item(), eigen_ratio.item()
 
 
-class trainer:
+class trainer(object):
 
     def __init__(self, name='default', comment='test tensorboard', dev='cuda'):
         self.n_graph = 0  # number of graphs that has been processed
@@ -227,17 +215,14 @@ class trainer:
         LM.set_C(sub.C)
         LM.set_s(g.num_nodes, k=args.n_bottomk)
 
-
         bl_loss, bl_ratio = LM.quaratic_loss(L1, L2_, sub.assignment, inv=args.inv, rayleigh=self.rayleigh_flag,
                                              dynamic=args.dynamic, comb=(L1_comb, L2_comb))
         trivial_loss, trivial_ratio = LM.quaratic_loss(L1, L_trivial, sub.assignment, inv=args.inv,
                                                        rayleigh=self.rayleigh_flag, dynamic=args.dynamic,
                                                        comb=(L1_comb, L_trivial))
-        T_L2_correction = correction(LM, L2_, args)
+        L2_correction = correction(LM, L2_, args)
         skip_flag = True if g.num_nodes > 1e3 else False
-        bl_eigen_loss = LM.eigen_loss(L1, T_L2_correction, args.n_bottomk, args=args, g1=g, skip=skip_flag)
-
-
+        bl_eigen_loss = LM.eigen_loss(L1, L2_correction, args.n_bottomk, args=args, g1=g, skip=skip_flag)
 
         edge_weight_sml_buffer = deepcopy(sub.g_sml.edge_weight).to(self.dev)
         train_data = g, train_loader, edge_weight_sml_buffer, \
@@ -285,8 +270,6 @@ class trainer:
                 optimizer.zero_grad()
                 loss.backward(retain_graph=False)  # https://bit.ly/2LbZNaR
                 optimizer.step()
-                if args.lap_check and args.lap not in ['rw'] and n_iter < 2 and step % 3 == 0:
-                    check_laplacian(L2, step, eps=1e-5)
 
             L2_correction = correction(LM, L2, args)
             skip_flag = True if g.num_nodes > 1e2 else False

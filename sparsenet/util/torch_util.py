@@ -1,31 +1,17 @@
 # Created at 2020-06-13
-# Summary: torch related functions
-import torch
-import networkx as nx
+# Summary: torch related functions. Mainly implemented some sparse matrix operations for pytorch==1.4.0.
 
-from sparsenet.util.util import summary, tonp
-import scipy as sp
 from time import time
-from sparsenet.util.util import pf
-from functools import partial
-from scipy.sparse import csr_matrix
 
-def complexity(method, n=[1,10,100]):
-
-    def timed(*args, **kw):
-        for _n in n:
-            ts = time()
-            print(args, kw)
-            kw['n'] = _n
-            print(kw)
-            result = method(*args, **kw)
-            te = time()
-            print(f'n: {_n}. t: {te-ts}')
-        return result
-    return timed
-
-from scipy.sparse import coo_matrix
+import networkx as nx
 import numpy as np
+import scipy as sp
+import torch
+from deprecated import deprecated
+from scipy.sparse import csr_matrix, coo_matrix
+
+from sparsenet.util.util import summary, tonp, pf
+
 
 def sparse_tensor2_sparse_numpyarray(sparse_tensor):
     """
@@ -42,6 +28,7 @@ def sparse_tensor2_sparse_numpyarray(sparse_tensor):
     scipy_sparse_mat = coo_matrix((values, (rows, cols)), shape=size, dtype=np.float)
     return scipy_sparse_mat
 
+
 def sparse_matrix2sparse_tensor(ret, dev='cpu'):
     # coo sparse matrix to sparse tensor
     # https://bit.ly/30DI2u8
@@ -53,8 +40,6 @@ def sparse_matrix2sparse_tensor(ret, dev='cpu'):
     return torch.sparse.FloatTensor(i, v, torch.Size(shape)).to(dev)
 
 
-
-# @partial(complexity, n=[1,2,3,4,5])
 def sparse_mm(L, Q):
     """
     :param L: a sparse tensor
@@ -66,11 +51,12 @@ def sparse_mm(L, Q):
         L = L.to('cpu')
         Q = Q.to('cpu')
 
-    L = sparse_tensor2_sparse_numpyarray(L) # csr_matrix(L)
-    Q = sparse_tensor2_sparse_numpyarray(Q) # csr_matrix(Q)
+    L = sparse_tensor2_sparse_numpyarray(L)  # csr_matrix(L)
+    Q = sparse_tensor2_sparse_numpyarray(Q)  # csr_matrix(Q)
 
-    ret = coo_matrix(Q.dot(L.dot(Q))) # coo matrix sparse
+    ret = coo_matrix(Q.dot(L.dot(Q)))  # coo matrix sparse
     return sparse_matrix2sparse_tensor(ret, dev=dev)
+
 
 def sparse_mm2(P, D1, D2):
     """
@@ -95,6 +81,8 @@ def sparse_mm2(P, D1, D2):
         exit()
     return sparse_matrix2sparse_tensor(ret, dev=dev)
 
+
+@deprecated('To be removed')
 def mm(n=10):
     g = nx.random_geometric_graph(n, 0.1)
     L = nx.laplacian_matrix(g).todense()
@@ -116,13 +104,16 @@ def mm(n=10):
     ret2 = tonp(Q).dot(tonp(L).dot(tonp(Q)))
     summary(ret2, 'ret2')
     t2 = time()
-    print(f'method 2: {pf(t2-t1, 2)}')
+    print(f'method 2: {pf(t2 - t1, 2)}')
 
-    assert (ret2-ret1 ==0).all()
+    assert (ret2 - ret1 == 0).all()
     # summary(tonp(tonp(ret2) - tonp(ret1.todense())), 'ret2-ret1')
 
+
 if __name__ == '__main__':
-    n = 50 #000
+    mm()
+    exit()
+    n = 50  # 000
     g = nx.random_geometric_graph(n, 0.01)
     L = nx.laplacian_matrix(g)
     L = torch.Tensor(L)

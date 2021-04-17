@@ -1,9 +1,6 @@
 # Created at 2020-06-11
 # Summary: cut, conductance related
 
-from sparsenet.util.sys_util import status
-from functools import partial
-from time import time
 from typing import Optional
 
 import networkx as nx
@@ -35,14 +32,6 @@ def normalized_cut(edge_index, edge_attr, num_nodes: Optional[int] = None):
     return cut
 
 
-tf = partial(timefunc, threshold=0.1)
-
-# @timefunc
-from memory_profiler import profile
-from numba import jit
-
-# @profile
-# @jit(nopython=True)
 def _set(row, s, dev='cuda'):
     # t0 = time()
     i = torch.nonzero(row[..., None] == s)[:, 0]
@@ -52,10 +41,9 @@ def _set(row, s, dev='cuda'):
     row_s[i] = 1
     return row_s.type(torch.int8).to(dev)
 
-# @profile
 
 @timefunc
-def pyG_conductance(edge_index, edge_attr, s, t=None, dev='cuda', verbose = False):
+def pyG_conductance(edge_index, edge_attr, s, t=None, dev='cuda', verbose=False):
     """
     :param edge_index:
     :param edge_attr:
@@ -74,7 +62,6 @@ def pyG_conductance(edge_index, edge_attr, s, t=None, dev='cuda', verbose = Fals
     row, col = edge_index[0], edge_index[1]
     del edge_index
 
-
     # row_s = torch.sum(row[..., None] == s, axis=1) # memory intensive
     row_s = _set(row, s, dev=dev)
     # col_s = torch.sum(col[..., None] == s, axis=1)
@@ -87,7 +74,7 @@ def pyG_conductance(edge_index, edge_attr, s, t=None, dev='cuda', verbose = Fals
     # row_t = torch.sum(row[..., None] == t, axis=1)
     row_t = _set(row, t, dev=dev) if _t is not None else (1 - row_s).to(dev)
     # col_t = torch.sum(col[..., None] == t, axis=1)
-    col_t = _set(col, t, dev=dev) if _t is not None else (1- col_s).to(dev)
+    col_t = _set(col, t, dev=dev) if _t is not None else (1 - col_s).to(dev)
     vol_t = torch.sum(torch.mul(edge_attr, row_t + col_t))
 
     indices = torch.nonzero((row_s & col_t) | (row_t & col_s))
@@ -96,13 +83,14 @@ def pyG_conductance(edge_index, edge_attr, s, t=None, dev='cuda', verbose = Fals
     # print(f'cut: {cut}. vol_s: {vol_s}. vol_t: {vol_t}')
     if verbose:
         print(f'cut: {cut}. vol_s: {vol_s}. vol_t: {vol_t}, conductance: {cut / max(1, min(vol_s, vol_t))}')
-    return cut / max(1, min(vol_s, vol_t)) # make sure it's at least 1. This is needed for large reduction ratio.
+    return cut / max(1, min(vol_s, vol_t))  # make sure it's at least 1. This is needed for large reduction ratio.
+
 
 import argparse
+
 parser = argparse.ArgumentParser(description='Baseline for graph sparsification')
 parser.add_argument('--dataset', type=str, default='ws', help='dataset for egographs')
 parser.add_argument('--sample', action='store_true')
-
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -110,8 +98,6 @@ if __name__ == '__main__':
     n_node, n_edge = 320, 5000
     N = 1
     idx = 0
-
-    from sparsenet.util.data import EgoGraphs, syth_graphs
 
     # kwargs = {'dataset': args.dataset, 'hop': -1, 'size': 50, 's_low': -1, 's_high': -1, 'sample': 'rw'}
     # pyGs = EgoGraphs(**kwargs)
@@ -125,12 +111,13 @@ if __name__ == '__main__':
             print(pyG)
             pyG.edge_weight = pyG.edge_weight * 1
             # summary(pyG, 'pyG')
-            nxG = to_networkx(pyG, edge_attrs=['edge_weight'], to_undirected=True)  # important: directed/non-directed makes difference for cuts
+            nxG = to_networkx(pyG, edge_attrs=['edge_weight'],
+                              to_undirected=True)  # important: directed/non-directed makes difference for cuts
 
-            pyG_cut = normalized_cut(pyG.edge_index, pyG.edge_weight, pyG.num_nodes,)
-            s = np.random.choice(range(pyG.num_nodes), int(pyG.num_nodes/2.0), replace=False).tolist()
+            pyG_cut = normalized_cut(pyG.edge_index, pyG.edge_weight, pyG.num_nodes, )
+            s = np.random.choice(range(pyG.num_nodes), int(pyG.num_nodes / 2.0), replace=False).tolist()
             if args.sample:
-                s, t = s[:len(s)//2], s[len(s)//2 :]
+                s, t = s[:len(s) // 2], s[len(s) // 2:]
             else:
                 s, t = s, None
 

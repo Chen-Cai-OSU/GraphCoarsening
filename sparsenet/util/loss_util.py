@@ -6,14 +6,16 @@ from copy import deepcopy
 import numpy as np
 import scipy as sp
 import torch
+from torch.sparse import mm as smm
+
+from deprecated import deprecated
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import eigs, eigsh
 
 from sparsenet.model.loss import get_sparse_projection_mat
-# from sparsenet.util.data import pyg2gsp
 from sparsenet.util.cut_util import pyG_conductance
 from sparsenet.util.torch_util import sparse_mm2, sparse_matrix2sparse_tensor
-from sparsenet.util.util import fix_seed, timefunc, summary, random_laplacian, pf, tonp, red, dic2tsr
+from sparsenet.util.util import timefunc as tf, fix_seed, summary, random_laplacian, pf, tonp, red, dic2tsr
 
 fix_seed()
 
@@ -69,13 +71,10 @@ class vec_generator(object):
             X = self._normalize(X)
         return X
 
-    @timefunc
-    def bottomk_vec(self, laplacian, N, k, which='SM', val=False):
-
+    @tf
+    def bottomk_vec(self, laplacian, k, which='SM', val=False):
         """
-        todo: remove N since it's not used
         :param laplacian: The input laplacian matrix, should be a sparse tensor.
-        :param N: the size of the graph.
         :param k: The top K (smalleset) eigenvectors.
         :param which: LM, SM, LR, SR, LM, SM largest/smallest magnitude, LR/SR largest/smallest real value.
         more details see scipy.sparse.linalg.eigs
@@ -100,8 +99,8 @@ class vec_generator(object):
             vecs = torch.FloatTensor(vecs.real)
         except:
             exit(f'Convergence Error in bottomk_vec when computing {k} eigenvecotrs.')  # shape dataset has such problem
-        vecs = self._normalize(vecs)  # no effect
 
+        vecs = self._normalize(vecs)  # no effect
         if val:
             return vals
         else:
@@ -125,7 +124,7 @@ class vec_generator(object):
         print('Original vecs:', vectors)
         adjacency = self._laplacian2adjacency(laplacian)
         for i in range(power_method_iter):
-            vectors = self._normalize(torch.sparse.mm(adjacency, vectors))
+            vectors = self._normalize(smm(adjacency, vectors))
         return vectors
 
 
@@ -143,19 +142,20 @@ class loss_manager(object):
             NotImplementedError
 
         self.method = method
-        self.device = device
+        self.dev = device
         self.L1 = None
         self.vals_L1 = None
         self.inv_asgmt = None
         self.Projection = None
         self.D1 = None
 
-    @timefunc
+    @tf
     def set_C(self, C=None):
+        # todo: add comment
         if C is not None:
-            self.C = C  # csc_matrix of shape (n, N) # tonp(C)
+            self.C = C  # csc_matrix of shape (n, N)
             self.pi = sparse_matrix2sparse_tensor(self.C.T.dot(self.C).tocoo(),
-                                                  dev=self.device)  # mainly used for rayleigh quotient
+                                                  dev=self.dev)  # mainly used for rayleigh quotient
             tmp = self.C.dot(np.ones((self.C.shape[1], 1))).reshape(-1)
             assert np.min(tmp) > 0, f'min of tmp is {np.min(tmp)}'
             # self.Q = np.diag(tmp)
@@ -165,19 +165,20 @@ class loss_manager(object):
             diag_indices = [list(range(n))] * 2
             i = torch.LongTensor(diag_indices)
             v = torch.FloatTensor(1.0 / tmp)
-            self.invQ = torch.sparse.FloatTensor(i, v, torch.Size([n, n])).to(self.device)
+            self.invQ = torch.sparse.FloatTensor(i, v, torch.Size([n, n])).to(self.dev)
 
-    def set_precomute_x(self, g, args, k=40):
+    def set_precomute_x(self, g, args, k=40, v=False):
         key = f'{args.lap}_vecs'
-        self.x = g[key][:, :k].to(self.device)
-        summary(self.x, red(f'precomputed test vector {key}'))
+        self.x = g[key][:, :k].to(self.dev)
+        if v:
+            summary(self.x, red(f'precomputed test vector {key}'))
 
-    @timefunc
     def set_x(self, *args, **kwargs):
-        self.x = getattr(self.gen, self.method)(*args, **kwargs).to(self.device)
+        print(red('Recompute eigenvector'))
+        self.x = getattr(self.gen, self.method)(*args, **kwargs).to(self.dev)
         summary(self.x, 'test vector')
 
-    @timefunc
+    @tf
     def set_s(self, n, k=40):
         """ set a random set of nodes for condunctance.
             Generate a list (len k) of random nodes in ORIGINAL graph as test subset
@@ -190,27 +191,23 @@ class loss_manager(object):
             self.s_list.append(s)
             self.s_list_tsr.append(torch.tensor(s))
 
-    @timefunc
+    ############ condunctance_loss related ############
+    @tf
     def _build_inv_asgnment(self, assgnment):
         if self.inv_asgmt is None:
             self.inv_asgmt = {v: key for (key, value) in assgnment.items() for v in
                               value}  # key is the nodes in large graph.
-            self.inv_asgmt_tsr = dic2tsr(self.inv_asgmt, dev=self.device)
+            self.inv_asgmt_tsr = dic2tsr(self.inv_asgmt, dev=self.dev)
 
-    @timefunc
+    @tf
     def get_s_prime(self, s):
-        """ assume self.inv_asgmt is built. From s generate s_prime.
+        """ assume self.inv_asgmt is built.
+        From s generate s_prime. used for condunctance_loss.
         """
-        s = s.to(self.device)
+        s = s.to(self.dev)
         if isinstance(s, torch.Tensor):
             s_prime = torch.index_select(self.inv_asgmt_tsr, 0, s)
             s_prime = torch.unique(s_prime)  # remove duplicates
-            # s = tonp(s).tolist()
-            # s_prime = [self.inv_asgmt[s_] for s_ in s]
-            # s_prime = torch.tensor(s_prime)
-            # print(s_prime)
-            # print(s_prime_)
-            # exit()
         elif isinstance(s, list):
             s_prime = [self.inv_asgmt[s_] for s_ in s]
             s_prime = list(set(s_prime))
@@ -220,7 +217,7 @@ class loss_manager(object):
 
         return s_prime
 
-    @timefunc
+    @tf
     def condunctance_loss(self, g1, g2, assgnment, verbose=False):
         """
         todo: slow for shape dataset: 1.2s each batch
@@ -229,15 +226,16 @@ class loss_manager(object):
         :param assgnment: dict
         :return:
         """
+
         edge_index1, edge_attr1 = g1
         edge_index2, edge_attr2 = g2
         self._build_inv_asgnment(assgnment)
         loss = 0
         for i, s in enumerate(self.s_list_tsr):
 
-            cond1 = pyG_conductance(edge_index1, edge_attr1, s.tolist(), t=None, dev=self.device)
+            cond1 = pyG_conductance(edge_index1, edge_attr1, s.tolist(), t=None, dev=self.dev)
             s_prime = self.get_s_prime(s)
-            cond2 = pyG_conductance(edge_index2, edge_attr2, s_prime.tolist(), t=None, dev=self.device)
+            cond2 = pyG_conductance(edge_index2, edge_attr2, s_prime.tolist(), t=None, dev=self.dev)
             loss += torch.abs(cond1 - cond2)
 
             if verbose:
@@ -249,6 +247,8 @@ class loss_manager(object):
 
         return loss / len(self.s_list)
 
+    ############ quadratic_loss related ###############
+    @deprecated(reason="to be refactord")
     def _set_d(self, L, power=0.5):
         """ from sparse tensor L to degree matrix """
         # todo: speed up. 3
@@ -260,7 +260,8 @@ class loss_manager(object):
         deg = torch.sparse.FloatTensor(idx, diag, torch.Size([n, n]))
         return deg
 
-    def quaratic_loss(self, L1, L2, assignment, verbose=False, inv=False, rayleigh=False, dynamic=False,
+    def quaratic_loss(self, L1, L2, assignment, verbose=False, inv=False,
+                      rayleigh=False, dynamic=False,
                       comb=(None, None)):
         """
         modfied from random_vec_loss.
@@ -273,15 +274,9 @@ class loss_manager(object):
         :param: comb: combinatorial L1, L2. Only used for normalized Laplacian.
         :return loss, ratio
         """
-
-        # if L1.device.type != self.device:
-        # assert L2.device.type == self.device, f'L2 device is {L1.device}. expect {self.device}'
-        L1, L2 = L1.to(self.device), L2.to(self.device)  # , f'L1 device is {L1.device}. expect {self.device}'
-
+        L1, L2 = L1.to(self.dev), L2.to(self.dev)
         if self.Projection is None:
-            # Projection = get_projection_mat(L1.shape[0], L2.shape[0], assignment).to(self.device)
-            self.Projection = get_sparse_projection_mat(L1.shape[0], L2.shape[0], assignment).to(
-                self.device)  # sparse tensor
+            self.Projection = get_sparse_projection_mat(L1.shape[0], L2.shape[0], assignment).to(self.dev)  # sparse tensor
             Projection = self.Projection
         else:
             Projection = self.Projection
@@ -297,46 +292,31 @@ class loss_manager(object):
             D2 = self._set_d(L2_comb, power=0.5)
             Projection = sparse_mm2(Projection, D1, D2)
 
-        X_prime = torch.sparse.mm(Projection, self.x)
+        X_prime = smm(Projection, self.x)
 
-        if rayleigh:
-            # this is previous implementation
-            pass
-            # self.x = torch.nn.functional.normalize(self.x, dim=0)
-            # X_prime = torch.nn.functional.normalize(X_prime, dim=0)
-            assert self.pi is not None
-            denominator = torch.diag(torch.mm(self.x.t(), torch.sparse.mm(self.pi, self.x)))  # (n_bottomk,)
-
-        if not inv:
-            quadL = torch.mm(self.x.t(), torch.sparse.mm(L1, self.x))
-            qualL_sparse = torch.mm(X_prime.t(), torch.sparse.mm(L2, X_prime))
+        if inv:
+            raise NotImplementedError
         else:
-            L1_cond = np.linalg.cond(tonp(L1))
-            L2_cond = np.linalg.cond(tonp(L2))
-            print(f'Condition number of L1/L2 is {L1_cond}/{L2_cond}')
-            L1_inv = torch.pinverse(L1.to_dense())
-            L2_inv = torch.pinverse(L2.to_dense())
-            quadL = torch.mm(self.x.t(), torch.mm(L1_inv, self.x))
-            qualL_sparse = torch.mm(X_prime.t(), torch.mm(L2_inv, X_prime))
+            quadL1 = torch.mm(self.x.t(), smm(L1, self.x))
+            qualL2 = torch.mm(X_prime.t(), smm(L2, X_prime))
 
-        diff = torch.abs(torch.diag(quadL - qualL_sparse))  # important: previously DK didn't add torch.diag
-        if rayleigh: diff = diff / denominator
+        diff = torch.abs(torch.diag(quadL1 - qualL2))
+        if rayleigh:
+            assert self.pi is not None
+            denominator = torch.diag(torch.mm(self.x.t(), smm(self.pi, self.x)))  # (n_bottomk,)
+            diff = diff / denominator
 
-        loss = torch.mean(diff)  # torch.sum(diff)
-        ratio = torch.sum(torch.diag(qualL_sparse)) / torch.sum(torch.diag(quadL))
+        loss = torch.mean(diff)
+        ratio = torch.sum(torch.diag(qualL2)) / torch.sum(torch.diag(quadL1))
         ratio = torch.abs(torch.log(ratio))
-        std = torch.std(diff)
-        ret = str(pf(loss.item(), 2)) + '±' + str(pf(std.item(), 2))
-
         if verbose:
             bad_indices = tonp((diff / loss > 1).nonzero())
             print(bad_indices.reshape(-1))
         return loss, ratio
 
-    @timefunc
+    @tf
     def eigen_loss(self, L1, L2, k, args=None, g1=None, skip=False):
-        """ compare the first k eigen difference
-            L1 is larger than L2
+        """ compare the first k eigen difference;  L1 is larger than L2
         :param args
         :param g1: used for retrive precomputed spectrum
         """
@@ -357,7 +337,7 @@ class loss_manager(object):
         if args.cacheeig:
             raise NotImplementedError
         else:
-            vals_L2 = self.gen.bottomk_vec(L2, None, k, which='SM', val=True).real
+            vals_L2 = self.gen.bottomk_vec(L2, k, which='SM', val=True).real
 
         # compute the eigenvalues error
         vals_L1 = vals_L1[:len(vals_L2)]  # in case vals_L1 and vals_L2 are of different length
@@ -385,7 +365,7 @@ if __name__ == '__main__':
     LM = loss_manager()
     eigloss = LM.eigen_loss(sparse_mat, sparse_mat, 2, g1=None)
     print(eigloss)
-    bottomk_vec = gen.bottomk_vec(laplacian=sparse_mat, N=4, k=2)
+    bottomk_vec = gen.bottomk_vec(laplacian=sparse_mat, k=2)
 
     for i in range(2):
         summary(bottomk_vec[:, i], f'bottomk_vec[:, {i}]')
@@ -407,6 +387,6 @@ if __name__ == '__main__':
     laplacian = torch.sparse.FloatTensor(i, v, torch.Size((n, n)))
 
     for _ in range(5):
-        eigenvec = gen.bottomk_vec(laplacian, 5, 2)
+        eigenvec = gen.bottomk_vec(laplacian, 2)
         summary(eigenvec, 'eigenvec')
     exit()

@@ -1,16 +1,12 @@
 # Created at 2020-06-04
 # Summary: database utils
 
-import pandas as pd
-
-from signor.utils.database.mongodb_util import mongo_util
-from signor.utils.dict import merge_two_dicts, filter_dict
-# from signor.ioio.dir import data
-from sparsenet.util.util import banner, red, hasany, slicestr, summary, timefunc
-from warnings import warn
-from sparsenet.util.util import pf
 import numpy as np
-import logging
+from signor.utils.database.mongodb_util import mongo_util
+from signor.utils.dict import filter_dict
+
+# from signor.ioio.dir import data
+from sparsenet.util.util import banner, red, hasany, slicestr, timefunc, pf
 
 
 class str_parser:
@@ -53,7 +49,7 @@ class parser(object):
             if msg in s:
                 # warn(msg) # todo: understand why it only appear once
                 print(red(msg))
-                return # it's better not to turn anything when there is error
+                return  # it's better not to turn anything when there is error
                 # exit()
 
         s = s.split('\n')
@@ -159,9 +155,6 @@ def get_rawdf(db='sparsifier'):
     return df
 
 
-from tqdm import tqdm
-
-
 @timefunc
 def find_duplicate(param, db='sparsifier', start=1):
     """
@@ -181,7 +174,6 @@ def find_duplicate(param, db='sparsifier', start=1):
             print(f'Exp {idx} configs: {d.values()}')
             print(f'param: {param}')
             return True
-
 
     print('No duplicate found')
     return False

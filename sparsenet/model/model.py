@@ -1,19 +1,16 @@
 # Created at 2020-04-10
 # Summary: graph encoders
 
-import numpy as np
+import argparse
+
 import torch
 import torch.nn.functional as F
-from torch_geometric.data import Data, DataLoader
+from torch_geometric.data import DataLoader
 from torch_geometric.nn import Set2Set, MessagePassing, global_add_pool, global_mean_pool, global_max_pool, \
     GlobalAttention
 from torch_geometric.utils import add_self_loops
 
-from sparsenet.util.util import summary, random_edge_index, fix_seed, random_pygeo_graph, timefunc
-
-
-# EDGE_FEAT_DIM = 20
-# NODE_DIM = 42
+from sparsenet.util.util import summary, fix_seed, random_pygeo_graph
 
 
 class GINConv(MessagePassing):
@@ -141,8 +138,6 @@ class GNN(torch.nn.Module):
 
         return node_representation
 
-from memory_profiler import profile
-
 
 class GNN_graphpred(torch.nn.Module):
     """
@@ -160,9 +155,10 @@ class GNN_graphpred(torch.nn.Module):
     See https://arxiv.org/abs/1810.00826
     JK-net: https://arxiv.org/abs/1806.03536
     """
+
     # @profile
     def __init__(self, num_layer, emb_dim, node_feat_dim, edge_feat_dim, num_tasks, JK="last", drop_ratio=0,
-                 graph_pooling="mean", gnn_type="gin", force_pos = False, mlp=False):
+                 graph_pooling="mean", gnn_type="gin", force_pos=False, mlp=False):
         """
 
         :param num_layer:
@@ -225,15 +221,15 @@ class GNN_graphpred(torch.nn.Module):
 
         if self.mlp:
             self.graph_pred_linear = torch.nn.Sequential(
-                torch.nn.Linear(self.mult * self.emb_dim, self.mult  * self.emb_dim),
-                torch.nn.ReLU(),
                 torch.nn.Linear(self.mult * self.emb_dim, self.mult * self.emb_dim),
                 torch.nn.ReLU(),
                 torch.nn.Linear(self.mult * self.emb_dim, self.mult * self.emb_dim),
                 torch.nn.ReLU(),
                 torch.nn.Linear(self.mult * self.emb_dim, self.mult * self.emb_dim),
                 torch.nn.ReLU(),
-                torch.nn.Linear(self.mult  * self.emb_dim, self.num_tasks))
+                torch.nn.Linear(self.mult * self.emb_dim, self.mult * self.emb_dim),
+                torch.nn.ReLU(),
+                torch.nn.Linear(self.mult * self.emb_dim, self.num_tasks))
 
     def from_pretrained(self, model_file):
         # self.gnn = GNN(self.num_layer, self.emb_dim, JK = self.JK, drop_ratio = self.drop_ratio) # important
@@ -252,7 +248,7 @@ class GNN_graphpred(torch.nn.Module):
 
         node_representation = self.gnn(x, edge_index, edge_attr)
         rep = self.graph_pred_linear(self.pool(node_representation, batch))
-        if ini and len(argv)==1:
+        if ini and len(argv) == 1:
             ini_tsr = torch.stack([data.ini] * rep.size(1), dim=1)
 
         if self.force_pos:
@@ -260,14 +256,11 @@ class GNN_graphpred(torch.nn.Module):
                 # important: new version. has not tested it. Does it works well for amazons?
                 return torch.nn.ReLU()(rep + ini_tsr) + 1
                 # return 0.5 * rep + torch.nn.ReLU()(ini_tsr) # + torch.zeros(rep.size()).to(rep.device)
-
             else:
                 return 1 + torch.nn.ReLU()(rep)  # important: add 1 by default. not sure it's the best.
         else:
             return rep
 
-
-import argparse
 
 parser = argparse.ArgumentParser(description='PyTorch implementation of pre-training of graph neural networks')
 parser.add_argument('--gnn_type', type=str, default='gin', help='')
@@ -278,34 +271,14 @@ if __name__ == "__main__":
     node_feat_dim = 5
     n_node, n_edge = 320, 5000
     n_layer = 3
-
     emb_dim, out_dim = 50, 18
 
-    model_name = 'quick-test'
-    OUT_PATH = ''
-    model = GNN_graphpred(n_layer, emb_dim, node_feat_dim, edge_feat_dim, out_dim, mlp=False)  # GNN(5, 300, gnn_type='gin') #
-    print(model)
-    n = 0
-    for parameter in model.parameters():
-        n += parameter.numel()
-    print(n)
-    exit()
-    torch.save(model.state_dict(), OUT_PATH + model_name)
-    model.load_state_dict(torch.load(OUT_PATH + model_name))
+    model = GNN_graphpred(n_layer, emb_dim, node_feat_dim, edge_feat_dim, out_dim, mlp=False)
 
     g1 = random_pygeo_graph(n_node, node_feat_dim, n_edge, edge_feat_dim, device='cpu')
     g2 = random_pygeo_graph(n_node + 10, node_feat_dim, n_edge + 10, edge_feat_dim, device='cpu')
-
-    print('-' * 10)
-    summary(g1.x, 'g.x')
-    summary(g1.edge_index, 'g.edge_index')
-    summary(g1.edge_attr, 'g.edge_attr')
 
     loader = DataLoader([g1] * 16 + [g2] * 16, batch_size=8, shuffle=True, num_workers=0)
     for batch in loader:
         pred = model(batch)
         summary(pred, 'pred')
-        exit()
-
-    # output = model(g.x, g.edge_index, g.edge_attr)
-    # summary(output, 'output')  # FloatTensor of shape [32, 300]

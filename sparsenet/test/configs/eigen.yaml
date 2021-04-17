@@ -1,0 +1,146 @@
+
+
+offset:
+    format: "values"
+    values:
+#        - 40
+        - 0
+    dtype: "int"
+
+w_len:
+    format: "values"
+    values:
+#        - 5000
+#        - 10000
+        - 15000
+    dtype: "int"
+
+ini:
+    format: "values"
+    values:
+#        - False
+        - True
+    dtype: 'bool'
+
+
+correction:
+    format: "values"
+    values:
+        - False
+#        - True
+    dtype: 'bool'
+
+
+valeigen:
+    format: "values"
+    values:
+        - True
+    dtype: 'bool'
+
+
+device:
+    format: "values"
+    values:
+#        - 'cuda'
+        - 'cpu'
+    dtype: 'str'
+
+
+loss:
+    format: "values"
+    values:
+        - 'quadratic'
+#        - 'rayleigh'
+    dtype: 'str'
+
+
+lap:
+    format: "values"
+    values:
+        - 'none'
+#        - 'sym'
+    dtype: 'str'
+
+n_epoch:
+    format: "values"
+    values:
+        - 20 # 20 is usually enough
+    dtype: "int"
+
+strategy:
+    format: "values"
+    values:
+        - "loukas"
+    dtype: 'str'
+
+method:
+    format: "values"
+    values:
+        - "variation_neighborhood"
+        - 'variation_edges'
+#        - 'algebraic_JC'
+#        - 'affinity_GS'
+#        - 'heavy_edge'
+    dtype: 'str'
+
+n_bottomk:
+    format: "values"
+    values:
+#        - 60
+#        - 110
+        - 500
+#        - 40
+    dtype: "float"
+
+bs:
+    format: "values"
+    values:
+        - 600
+    dtype: "int"
+
+lr:
+    format: "values"
+    values:
+        - 1e-3
+    dtype: "float"
+
+ratio:
+    format: "values"
+    values:
+        - 0.3
+        - 0.5
+        - 0.7
+#        - 0.9
+#        - 0.95
+    dtype: "float"
+
+
+dataset:
+    format: "values"
+    values:
+#        - 'citeseers'
+#        - 'pubmeds'
+#        - 'coauthor-cs'
+#        - 'coauthor-physics'
+        - 'flickr'
+    dtype: 'str'
+
+train_indices:
+    format: "values"
+    values:
+        - "\"2,3,4,5,6,7,8,9,10,11,12,13,14,\""
+    dtype: 'str'
+#
+test_indices:
+    format: "values"
+    values:
+        - "\"0,\""
+    dtype: 'str'
+
+
+seed:
+    format: "values"
+    values:
+        - 0
+    dtype: "int"
+

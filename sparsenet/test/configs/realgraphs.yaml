@@ -1,0 +1,103 @@
+loss:
+    format: "values"
+    values:
+#        - 'conductance'
+        - 'quadratic'
+    dtype: 'str'
+
+lap:
+    format: "values"
+    values:
+        - 'none'
+        - 'sym'
+    dtype: 'str'
+
+
+device:
+    format: "values"
+    values:
+#        - 'cuda'
+        - 'cpu'
+    dtype: 'str'
+
+n_epoch:
+    format: "values"
+    values:
+        - 20
+    dtype: "int"
+
+strategy:
+    format: "values"
+    values:
+#        - "loukas"
+        - "DK"
+    dtype: 'str'
+
+method:
+    format: "values"
+    values:
+#        - "variation_neighborhood"
+#        - 'heavy_edge'
+#        - 'variation_edges'
+#        - 'algebraic_JC'
+#        - 'affinity_GS'
+        - "DK_method"
+    dtype: 'str'
+
+lr:
+    format: "values"
+    values:
+        - 1e-4
+    dtype: "float"
+
+
+n_bottomk:
+    format: "values"
+    values:
+        - 40
+#        - 70
+    dtype: "float"
+
+bs:
+    format: "values"
+    values:
+#        - 600
+#        - 2000
+        - 6000
+    dtype: "int"
+
+ratio:
+    format: "values"
+    values:
+        - 0.3
+        - 0.5
+        - 0.7
+        - 0.9
+    dtype: "float"
+
+
+dataset:
+    format: "values"
+    values:
+#        - 'amazons'
+        - 'coauthors'
+    dtype: 'str'
+
+train_indices:
+    format: "values"
+    values:
+        - "\"0,\""
+    dtype: 'str'
+#
+test_indices:
+    format: "values"
+    values:
+        - "\"1,\""
+    dtype: 'str'
+
+
+seed:
+    format: "values"
+    values:
+        - 0
+    dtype: "int"

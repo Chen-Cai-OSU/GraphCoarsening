@@ -19,8 +19,7 @@ import os.path as osp
 import torch
 from torch_geometric.data import InMemoryDataset
 
-from sparsenet.util.data import EgoGraphs, precompute_eig, snap_data, tu_data, shape_data, syth_graphs, planetoid, \
-    loukas_data, clip_feat
+from sparsenet.util.data import EgoGraphs, precompute_eig, shape_data, syth_graphs, loukas_data
 from sparsenet.util.name_util import big_ego_graphs, syn_graphs, loukas_datasets
 from sparsenet.util.util import summary, \
     random_pygeo_graph
@@ -53,11 +52,7 @@ class NonEgoGraphs(InMemoryDataset):
 
     def _select_datasets(self):
         dataset = self.dataset
-        if dataset == 'ego_facebook':
-            datasets = snap_data(name='ego-facebook')  # shape_data(n=1, _k=20)
-        elif dataset == 'collab':
-            datasets = tu_data(name='COLLAB')
-        elif dataset == 'shape':
+        if dataset == 'shape':
             datasets = shape_data(50, _k=10)
         elif dataset == 'faust':
             datasets = shape_data(50, _k=10, name='FAUST')
@@ -65,14 +60,8 @@ class NonEgoGraphs(InMemoryDataset):
             datasets = syth_graphs(n=50, size=700, type='geo')  # random_geo(n=10, size=512)
         elif dataset == 'random_er':
             datasets = syth_graphs(n=50, size=512, type='er')  # random_er(n=10, size=512)
-        elif dataset == 'sbm':
-            datasets = syth_graphs(n=50, size=512, type='sbm')
-        elif dataset == 'ws':
-            datasets = syth_graphs(n=50, size=512, type='ws')
-        elif dataset == 'ba':
-            datasets = syth_graphs(n=50, size=512, type='ba')
-        elif dataset == 'planetoid':
-            datasets = planetoid()
+        elif dataset in ['sbm', 'ws', 'ba']:
+            datasets = syth_graphs(n=50, size=512, type=dataset)
         elif dataset in ['yeast', 'airfoil', 'bunny', 'minnesota']:
             datasets = loukas_data(name=dataset)
         else:
@@ -103,8 +92,6 @@ parser.add_argument('--w_len', type=int, default=5000)
 
 
 if __name__ == '__main__':
-
-    # @profile
     def main():
         args = parser.parse_args()
         for dataset in [args.dataset]:  # big_ego_graphs:  # ['CiteSeer','PubMed', 'wiki-vote']:

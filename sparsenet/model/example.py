@@ -24,7 +24,6 @@ from sparsenet.model.eval import tester  # train, set_train_data
 from sparsenet.model.model import GNN_graphpred
 from sparsenet.util.data import data_loader
 from sparsenet.util.name_util import set_model_dir
-from sparsenet.util.train_util import monitor
 from sparsenet.util.util import fix_seed
 from sparsenet.util.args_util import argsparser
 
@@ -70,7 +69,7 @@ parser.add_argument('--trial', type=int, default=0, help='trial. Act like random
 parser.add_argument('--seed', type=int, default=1, help='random seed')
 parser.add_argument('--loss', type=str, default='quadratic', help='quadratic loss',
                     choices=['quadratic', 'rayleigh'])
-parser.add_argument('--offset', type=int, default='0', help='number of offset eigenvector')
+parser.add_argument('--offset', type=int, default=0, help='number of offset eigenvector')
 
 parser.add_argument('--correction', action='store_true', help='Apply Laplacian correction')
 parser.add_argument('--dynamic', action='store_true', help='Dynamic projection')
@@ -89,7 +88,6 @@ if __name__ == '__main__':
     AP = argsparser(parser.parse_args())
     args = AP.args
     dev = args.device
-    M = monitor()
     fix_seed(seed=args.seed)
 
     dataset_loader = data_loader(args, dataset=args.dataset)

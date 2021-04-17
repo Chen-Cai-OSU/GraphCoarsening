@@ -1,11 +1,13 @@
 # Created at 2020-05-18
 # Summary: util functions to monitor training
-import torch
-from sparsenet.util.util import banner, timefunc, summary
-import numpy as np
-import torch.nn.functional as F
+
 import functools
+
+import numpy as np
 import torch
+import torch.nn.functional as F
+
+from sparsenet.util.util import banner, timefunc, summary
 
 
 @timefunc
@@ -18,11 +20,10 @@ def check_laplacian(L, step, eps=1e-8):
     """
 
     # check if there is nan in the tensor
-    assert isinstance(L, (torch.sparse.FloatTensor, torch.cuda.sparse.FloatTensor)), 'Input laplacian is not sparse' \
-                                                                                     ' tensor'
+    Ltypes = (torch.sparse.FloatTensor, torch.cuda.sparse.FloatTensor)
+    assert isinstance(L, Ltypes), 'Input laplacian is not sparse tensor'
     nan_check = torch.isnan(L._values())
     nan_cnt = nan_check.nonzero().shape[0]
-    # nonan = (torch.sum(torch.isnan(L._values())) == 0)
     if nan_cnt != 0:
         u, v = L._indices()[:, nan_check.nonzero()[0]]
         u, v = u.item(), v.item()

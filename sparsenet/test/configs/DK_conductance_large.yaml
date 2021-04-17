@@ -1,0 +1,95 @@
+loss:
+    format: "values"
+    values:
+        - 'conductance'
+#        - 'quadratic'
+    dtype: 'str'
+
+device:
+    format: "values"
+    values:
+        - 'cpu'
+    dtype: 'str'
+
+n_epoch:
+    format: "values"
+    values:
+        - 10
+    dtype: "int"
+
+strategy:
+    format: "values"
+    values:
+        - "DK"
+    dtype: 'str'
+
+method:
+    format: "values"
+    values:
+        - "DK_method" # placeholder
+    dtype: 'str'
+
+n_bottomk:
+    format: "values"
+    values:
+        - 10
+#        - 70
+    dtype: "float"
+
+bs:
+    format: "values"
+    values:
+        - 6000
+    dtype: "int"
+
+ratio:
+    format: "values"
+    values:
+        - 0.3
+        - 0.5
+        - 0.7
+#        - 0.9
+    dtype: "float"
+
+
+dataset:
+    format: "values"
+    values:
+#        - 'sbm'
+#        - 'random_er'
+#        - 'shape'
+#        - 'random_geo'
+#        - 'ws'
+#        - 'ba'
+        - 'pubmeds'
+#        - 'coauthor-cs'
+#        - 'coauthor-physics'
+        - 'flickr'
+
+    dtype: 'str'
+
+
+train_indices:
+    format: "values"
+    values:
+        - "\"2,3,4,5,6,7,8,9,10,11,12,13,\""
+    dtype: 'str'
+#
+test_indices:
+    format: "values"
+    values:
+        - "\"0,\""
+    dtype: 'str'
+
+
+seed:
+    format: "values"
+    values:
+        - 0
+    dtype: "int"
+
+w_len:
+    format: "values"
+    values:
+        - 5000
+    dtype: "int"
