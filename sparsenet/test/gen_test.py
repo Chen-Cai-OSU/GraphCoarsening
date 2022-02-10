@@ -6,7 +6,8 @@ import os
 from sparsenet.util.util import runcmd
 from sparsenet.util.name_util import big_ego_graphs
 
-python = '/home/cai.507/anaconda3/envs/sparsifier/bin/python'
+# python = '/home/cai.507/anaconda3/envs/sparsifier/bin/python'
+python = '/home/chen/anaconda3/envs/sparsifier/bin/python'
 warn = False
 warn_cmd = ' -W ignore ' if not warn else ''
 

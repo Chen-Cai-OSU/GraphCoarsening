@@ -25,7 +25,7 @@ class argsparser():
 
         # todo: better handling
         if len(val_indices) == 0:
-            assert len(train_indices)>1
+            assert len(train_indices) > 1
             if len(train_indices) < 5:
                 n_sample = 1
             else:

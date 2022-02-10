@@ -6,3 +6,6 @@
 * torch                 1.4.0               
 * pytorch geometric     1.5.0
 * networkx              2.4
+
+## Test
+python sparsenet/test/gen_test.py

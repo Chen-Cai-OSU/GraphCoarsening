@@ -277,7 +277,7 @@ if __name__ == "__main__":
 
     g1 = random_pygeo_graph(n_node, node_feat_dim, n_edge, edge_feat_dim, device='cpu')
     g2 = random_pygeo_graph(n_node + 10, node_feat_dim, n_edge + 10, edge_feat_dim, device='cpu')
-
+    summary(g1, 'g1')
     loader = DataLoader([g1] * 16 + [g2] * 16, batch_size=8, shuffle=True, num_workers=0)
     for batch in loader:
         pred = model(batch)

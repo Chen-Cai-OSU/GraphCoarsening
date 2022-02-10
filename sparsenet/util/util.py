@@ -600,7 +600,7 @@ def one_liner(cmd):
 
 
 def sig_dir():
-    return '/home/cai.507/Documents/DeepLearning/sparsifier/'
+    return '/data/chen/cai.507/cai.507/Documents/DeepLearning/sparsifier/'
 
 
 def fig_dir():
@@ -608,7 +608,7 @@ def fig_dir():
 
 
 def tb_dir():
-    return '/home/cai.507/Documents/DeepLearning/sparsifier/result/tensorboardx/'
+    return '/data/chen/cai.507/cai.507/Documents/DeepLearning/sparsifier/result/tensorboardx/'
 
 
 def model_dir():
