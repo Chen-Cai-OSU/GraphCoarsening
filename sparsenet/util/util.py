@@ -600,7 +600,8 @@ def one_liner(cmd):
 
 
 def sig_dir():
-    return '/data/chen/cai.507/cai.507/Documents/DeepLearning/sparsifier/'
+    from sparsenet.util.dir_util import DIR
+    return DIR
 
 
 def fig_dir():
@@ -608,7 +609,7 @@ def fig_dir():
 
 
 def tb_dir():
-    return '/data/chen/cai.507/cai.507/Documents/DeepLearning/sparsifier/result/tensorboardx/'
+    return f'{tb_dir()}/result/tensorboardx/'
 
 
 def model_dir():

@@ -10,6 +10,7 @@ from signor.ioio.dir import mktemp
 from signor.utils.cli import runcmd, capture
 
 from sparsenet.util.db_util import find_duplicate
+from sparsenet.util.dir_util import PYTHON
 
 client = MongoClient('localhost', 27017)
 EXPERIMENT_NAME = 'test'
@@ -19,7 +20,7 @@ DATABASE_NAME = 'test'
 ex = Experiment(EXPERIMENT_NAME)
 ex.observers.append(MongoObserver.create(url=YOUR_CPU, db_name=DATABASE_NAME))
 
-python = '/home/cai.507/anaconda3/envs/sparsifier/bin/python -W ignore '
+python = f'{PYTHON} -W ignore '
 fname = 'sparsenet/model/example.py ' # f'{sig_dir()}graph/paper/PairNorm/main.py'
 
 

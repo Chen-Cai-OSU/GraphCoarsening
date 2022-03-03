@@ -5,13 +5,15 @@ from signor.configs.util import load_configs, dict_product, dict2arg
 from signor.utils.cli import runcmd
 from signor.utils.dict import update_dict
 from signor.utils.shell.parallel_args import write_cmds_for_parallel
+from sparsenet.util.dir_util import PYTHON
+
 import argparse
 
 parser = argparse.ArgumentParser(description='run all exps')
 parser.add_argument('--loukas', action='store_true', help='run experiments on Loukas JMLR paper')
 parser.add_argument('--run', action='store_true', help='run all exp')
 
-python = '/home/cai.507/anaconda3/envs/sparsifier/bin/python -W ignore  '
+python = f'{PYTHON} -W ignore  '
 fname = 'sparsenet/test/main.py '
 
 class tuner:
